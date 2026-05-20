@@ -4,6 +4,16 @@ ClinicalOrchestra is a research repo for attempting hard diagnosis case challeng
 
 This is not a clinical decision support system. It is for benchmark research and model/tool evaluation.
 
+## Documentation
+
+- [Architecture](docs/architecture.md): core objects, retrieval stages, and evaluation modes.
+- [Quickstart](docs/quickstart.md): install, test, and run the current PubMed CLI.
+- [PubMed Search Guide](docs/pubmed_search.md): practical query patterns for diagnostic case work.
+- [Run Provenance](docs/run_provenance.md): what every future run should record for reproducibility.
+- [Evaluation Design](docs/evaluation_design.md): closed-book, PubMed-only, open-literature, and web-enabled modes.
+- [Source And Licensing Policy](docs/source_and_licensing.md): boundaries for benchmarking, public release, and training.
+- [Roadmap](docs/roadmap.md): staged implementation plan.
+
 ## First Slice: PubMed Search
 
 The initial implementation wraps NCBI E-Utilities for PubMed:
@@ -59,6 +69,22 @@ The project will grow into a staged reasoning pipeline:
 
 The first version only implements step 3 and the PubMed part of step 4.
 
+## Example Clinical Query Patterns
+
+High-signal PubMed queries often combine syndrome, tempo, distinctive finding, and case-report terms:
+
+```bash
+clinical-orchestra pubmed search \
+  "(autoimmune encephalitis) AND psychosis AND catatonia AND case report" \
+  --limit 10
+```
+
+```bash
+clinical-orchestra pubmed search \
+  "(MOGAD OR \"myelin oligodendrocyte\") AND seizure AND adolescent AND case report" \
+  --limit 10 --format json
+```
+
 ## Licensing And Source Rules
 
 - PubMed metadata and abstracts are not automatically training data.
@@ -73,3 +99,5 @@ Run tests:
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
+
+The package currently has no runtime dependencies outside the Python standard library.
