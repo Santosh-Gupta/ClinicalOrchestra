@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import gzip
+import http.client
 import json
 import ssl
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any
 from urllib.error import HTTPError, URLError
+
+# Transient network faults worth retrying. RemoteDisconnected (server closed the connection without
+# a response) is an http.client.HTTPException AND a ConnectionResetError(OSError); ConnectionError
+# and other OSErrors cover dropped/reset sockets. urllib does not wrap these in URLError.
+_TRANSIENT_NETWORK_ERRORS = (HTTPError, URLError, TimeoutError, http.client.HTTPException, OSError)
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -18,7 +25,7 @@ EUTILS_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
 @dataclass(frozen=True)
 class NcbiConfig:
-    tool: str = "ClinicalOrchestra"
+    tool: str = "ClinicalHarness"
     email: str | None = None
     api_key: str | None = None
     verify_tls: bool = True
@@ -36,6 +43,10 @@ class NcbiClient:
     def __init__(self, config: NcbiConfig) -> None:
         self.config = config
         self._last_request_at = 0.0
+        # NCBI rate limits are enforced per-account, not per-connection. Under concurrent case
+        # evaluation many threads share one client, so the spacing must be serialized with a lock
+        # or we would burst past NCBI's ~3/s (no key) / ~10/s (key) ceiling and earn 429s/bans.
+        self._rate_lock = threading.Lock()
         self._ssl_context = None if config.verify_tls else ssl._create_unverified_context()
 
     def get_json(self, endpoint: str, params: dict[str, str | int]) -> dict[str, Any]:
@@ -74,7 +85,7 @@ class NcbiClient:
                     data = response.read()
                     encoding = response.headers.get("Content-Encoding", "")
                 return _decompress_if_needed(data, encoding)
-            except (HTTPError, URLError, TimeoutError) as exc:
+            except _TRANSIENT_NETWORK_ERRORS as exc:
                 last_error = exc
                 if attempt + 1 == self.config.retries:
                     break
@@ -84,11 +95,14 @@ class NcbiClient:
         raise last_error
 
     def _respect_rate_limit(self) -> None:
-        elapsed = time.monotonic() - self._last_request_at
-        wait = self.config.min_interval_seconds - elapsed
-        if wait > 0:
-            time.sleep(wait)
-        self._last_request_at = time.monotonic()
+        # Hold the lock across the sleep so concurrent workers serialize their request spacing and
+        # the global NCBI rate stays within min_interval_seconds regardless of worker count.
+        with self._rate_lock:
+            elapsed = time.monotonic() - self._last_request_at
+            wait = self.config.min_interval_seconds - elapsed
+            if wait > 0:
+                time.sleep(wait)
+            self._last_request_at = time.monotonic()
 
     def _user_agent(self) -> str:
         if self.config.email:

@@ -1,0 +1,28 @@
+{
+  "case_id": "synthetic-neuro-001",
+  "title": "Synthetic neurologic case",
+  "prompt": "A 19-year-old woman has subacute psychosis, insomnia, orofacial movements, and two generalized seizures over three weeks. Cerebrospinal fluid shows mild lymphocytic pleocytosis. Brain MRI is unrevealing.",
+  "answer_key": {
+    "final_diagnosis": "anti-NMDA receptor encephalitis",
+    "aliases": [
+      "NMDAR encephalitis",
+      "anti-N-methyl-D-aspartate receptor encephalitis"
+    ],
+    "localization": "limbic and cortical encephalitis",
+    "key_findings": [
+      "subacute psychiatric symptoms",
+      "seizures",
+      "orofacial movements",
+      "CSF lymphocytic pleocytosis"
+    ]
+  },
+  "metadata": {
+    "source_family": "synthetic",
+    "license_tier": "synthetic",
+    "source_exclusion": {
+      "pmid": null,
+      "doi": null,
+      "title": null
+    }
+  }
+}

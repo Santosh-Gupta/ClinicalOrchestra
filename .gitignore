@@ -1,4 +1,5 @@
 .DS_Store
+.claude/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -12,4 +13,14 @@ build/
 # Local runs and API outputs.
 runs/
 data/cache/
+data/eval/
 *.jsonl
+
+# Local/private materials that must not be uploaded.
+docs/DO NOT COMMIT TO GITHUB/
+private/
+local_private/
+*.local.json
+*.private.json
+*.env.local
+.env.local

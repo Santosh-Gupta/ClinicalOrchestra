@@ -1,0 +1,47 @@
+import type { ArtifactContent, CaseSummary, CaseTimeline, RunSummary, TraceEvent } from "./types";
+
+async function getJSON<T>(url: string): Promise<T> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText} for ${url}`);
+  return res.json() as Promise<T>;
+}
+
+export const api = {
+  runs: () => getJSON<RunSummary[]>("/api/runs"),
+  cases: (runId: string) =>
+    getJSON<CaseSummary[]>(`/api/runs/${encodeURIComponent(runId)}/cases`),
+  timeline: (runId: string, caseId: string) =>
+    getJSON<CaseTimeline>(
+      `/api/runs/${encodeURIComponent(runId)}/cases/${encodeURIComponent(caseId)}/timeline`,
+    ),
+  artifact: (runId: string, caseId: string, name: string) =>
+    getJSON<ArtifactContent>(
+      `/api/runs/${encodeURIComponent(runId)}/cases/${encodeURIComponent(caseId)}/artifacts/${encodeURIComponent(name)}`,
+    ),
+};
+
+// Subscribe to the SSE replay stream. Returns a cleanup function.
+export function streamTimeline(
+  runId: string,
+  caseId: string,
+  opts: { delayMs?: number; onEvent: (e: TraceEvent) => void; onDone?: () => void },
+): () => void {
+  const params = new URLSearchParams();
+  if (opts.delayMs != null) params.set("delay_ms", String(opts.delayMs));
+  const url = `/api/runs/${encodeURIComponent(runId)}/cases/${encodeURIComponent(
+    caseId,
+  )}/stream?${params.toString()}`;
+  const es = new EventSource(url);
+  es.addEventListener("trace", (ev) => {
+    opts.onEvent(JSON.parse((ev as MessageEvent).data) as TraceEvent);
+  });
+  es.addEventListener("done", () => {
+    opts.onDone?.();
+    es.close();
+  });
+  es.onerror = () => {
+    opts.onDone?.();
+    es.close();
+  };
+  return () => es.close();
+}

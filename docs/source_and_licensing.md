@@ -1,14 +1,26 @@
 # Source And Licensing Policy
 
-ClinicalOrchestra retrieves evidence to answer benchmark cases. That is legally and ethically different from building a public dataset or training corpus, but source constraints still matter.
+ClinicalHarness retrieves evidence to answer benchmark cases. That is legally and ethically different from building a public dataset or training corpus, but source constraints still matter.
 
 This document is research-engineering guidance, not legal advice.
+
+NeurologyBM owns benchmark source licensing and release-tier decisions. ClinicalHarness should preserve those decisions in run manifests and should not independently publish transformed case prompts or answer keys.
 
 ## Use Categories
 
 ### Private Benchmarking
 
 Locked or licensed case challenges may be used internally if access terms permit it. The repo should not commit or redistribute the case text unless permission or license allows it.
+
+## Local Private Areas
+
+ClinicalHarness reserves these paths for local-only material and ignores them in git:
+
+- `docs/DO NOT COMMIT TO GITHUB/`
+- `private/`
+- `local_private/`
+
+Use those paths for licensed paper notes, locked-source excerpts, private prompts, private run traces, or anything whose redistribution status is unclear. Public docs should contain only short paraphrased design lessons, public benchmark identifiers, and source/license metadata needed for evaluation provenance.
 
 Allowed artifacts:
 
@@ -61,6 +73,22 @@ For every PubMed evidence record, store:
 - query and rank
 
 If full text is needed, use PMC/Open Access APIs or publisher-specific access with license checks.
+
+## PMC Specific Notes
+
+ClinicalHarness can fetch PMC JATS XML and parse article metadata, abstract, license marker, and body sections. PMC availability does not automatically make all downstream uses unrestricted. Preserve:
+
+- PMCID
+- PMID, when available
+- DOI
+- article title
+- journal
+- publication year
+- license marker or license URL
+- section titles and retrieved text summaries
+- retrieval timestamp
+
+For benchmark attempts, source-exclusion controls must block or flag matching PMCID when the original source PMCID is known.
 
 ## Practical Rules
 

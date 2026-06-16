@@ -1,0 +1,17 @@
+# backend
+backend/.venv/
+backend/**/__pycache__/
+backend/*.egg-info/
+backend/clinical_viewer.egg-info/
+
+# frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# vendored node (see ARCHITECTURE.md §7)
+.toolchain/
+
+# misc
+.DS_Store
+*.log

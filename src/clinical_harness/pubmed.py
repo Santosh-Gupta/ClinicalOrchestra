@@ -18,6 +18,7 @@ class PubMedArticle:
     publication_year: str | None
     publication_types: tuple[str, ...]
     doi: str | None
+    pmcid: str | None
     url: str
 
     def to_dict(self) -> dict[str, Any]:
@@ -84,6 +85,7 @@ def parse_pubmed_xml(xml_text: str) -> list[PubMedArticle]:
                 publication_year=_publication_year(article),
                 publication_types=tuple(_publication_types(article)),
                 doi=_article_id(article, "doi"),
+                pmcid=_normalize_pmcid(_article_id(article, "pmc")),
                 url=f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
             )
         )
@@ -172,3 +174,12 @@ def _clean(value: str | None) -> str | None:
         return None
     cleaned = " ".join(value.split())
     return cleaned or None
+
+
+def _normalize_pmcid(value: str | None) -> str | None:
+    cleaned = _clean(value)
+    if not cleaned:
+        return None
+    if cleaned.upper().startswith("PMC"):
+        return "PMC" + cleaned[3:]
+    return f"PMC{cleaned}"

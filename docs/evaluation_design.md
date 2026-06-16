@@ -1,6 +1,8 @@
 # Evaluation Design
 
-ClinicalOrchestra is meant to compare models and tool policies on hard diagnosis cases. The key experimental variable is what information and tools the model can use.
+ClinicalHarness is meant to compare models and tool policies on hard diagnosis cases. The key experimental variable is what information and tools the model can use.
+
+Benchmark case construction and license tiering are owned by NeurologyBM. ClinicalHarness should preserve NeurologyBM case metadata in every run and apply source-exclusion controls when PMIDs, PMCIDs, DOIs, or source titles are available.
 
 ## Evaluation Modes
 
@@ -113,5 +115,6 @@ When using benchmark cases:
 - Track whether the model retrieves the original case report.
 - Optionally run two modes: `source_allowed` and `source_excluded`.
 - Keep answer keys out of prompts and retrieval context.
+- Preserve the case's license tier and split label in the run manifest.
 
 For challenge sites with locked content, store pointers and aggregate scores rather than redistributing prompt text.

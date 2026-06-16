@@ -1,6 +1,6 @@
 import unittest
 
-from clinical_orchestra.pubmed import parse_pubmed_xml
+from clinical_harness.pubmed import parse_pubmed_xml
 
 
 SAMPLE_XML = """<?xml version="1.0" encoding="UTF-8"?>
@@ -28,6 +28,7 @@ SAMPLE_XML = """<?xml version="1.0" encoding="UTF-8"?>
     <PubmedData>
       <ArticleIdList>
         <ArticleId IdType="doi">10.0000/example</ArticleId>
+        <ArticleId IdType="pmc">PMC1234567</ArticleId>
       </ArticleIdList>
     </PubmedData>
   </PubmedArticle>
@@ -47,6 +48,7 @@ class PubMedParseTests(unittest.TestCase):
         self.assertEqual(article.publication_year, "2025")
         self.assertEqual(article.publication_types, ("Case Reports",))
         self.assertEqual(article.doi, "10.0000/example")
+        self.assertEqual(article.pmcid, "PMC1234567")
         self.assertIn("BACKGROUND:", article.abstract or "")
         self.assertEqual(article.url, "https://pubmed.ncbi.nlm.nih.gov/12345/")
 

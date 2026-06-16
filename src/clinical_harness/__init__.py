@@ -1,4 +1,4 @@
-"""ClinicalOrchestra package."""
+"""ClinicalHarness package."""
 
 __all__ = ["__version__"]
 
