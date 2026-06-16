@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { TraceEvent } from "../types";
 import { ACTOR_COLOR, Badge, TYPE_GLYPH } from "./ui";
@@ -18,11 +18,27 @@ const EXPANDABLE = new Set([
   "judge",
 ]);
 
-export function EventCard({ event }: { event: TraceEvent }) {
+export function EventCard({
+  event,
+  expandVersion = 0,
+  collapseVersion = 0,
+}: {
+  event: TraceEvent;
+  expandVersion?: number;
+  collapseVersion?: number;
+}) {
   const expandable = EXPANDABLE.has(event.type);
   // Auto-expand the high-signal terminal events.
   const [open, setOpen] = useState(event.type === "answer" || event.type === "judge");
   const monoTitle = event.type === "query_generated" || event.type === "answer";
+
+  useEffect(() => {
+    if (expandVersion > 0 && expandable) setOpen(true);
+  }, [expandVersion, expandable]);
+
+  useEffect(() => {
+    if (collapseVersion > 0) setOpen(false);
+  }, [collapseVersion]);
 
   return (
     <div className="event fade-in">

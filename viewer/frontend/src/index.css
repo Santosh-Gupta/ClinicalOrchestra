@@ -248,7 +248,7 @@ a:hover { text-decoration: underline; }
 .report code { font-family: var(--mono); background: var(--panel); padding: 1px 4px; border-radius: 4px; }
 
 /* Controls */
-.controls { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
+.controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
 .btn {
   font-family: var(--sans); font-size: 12.5px; cursor: pointer;
   background: var(--panel-2); color: var(--text); border: 1px solid var(--border);

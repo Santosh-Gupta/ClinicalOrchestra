@@ -20,6 +20,8 @@ export default function App() {
   const [traceSearch, setTraceSearch] = useState("");
   const [runsPanelOpen, setRunsPanelOpen] = useState(true);
   const [casesPanelOpen, setCasesPanelOpen] = useState(true);
+  const [expandVersion, setExpandVersion] = useState(0);
+  const [collapseVersion, setCollapseVersion] = useState(0);
   const [artifactView, setArtifactView] = useState<{
     artifact: CaseArtifact;
     content: ArtifactContent | null;
@@ -315,6 +317,27 @@ export default function App() {
               >
                 Show all
               </button>
+              <button
+                className="btn"
+                onClick={() => setExpandVersion((version) => version + 1)}
+                disabled={streaming || shown.length === 0}
+              >
+                Expand all
+              </button>
+              <button
+                className="btn"
+                onClick={() => setCollapseVersion((version) => version + 1)}
+                disabled={streaming || shown.length === 0}
+              >
+                Collapse all
+              </button>
+              <button
+                className="btn"
+                onClick={() => exportTraceMarkdown(timeline, visibleEvents)}
+                disabled={visibleEvents.length === 0}
+              >
+                Export MD
+              </button>
               {timeline.score && (
                 <Badge status={timeline.score === "pass" ? "pass" : "fail"} />
               )}
@@ -399,7 +422,12 @@ export default function App() {
               )}
             </div>
             {visibleEvents.map((e) => (
-              <EventCard key={e.id} event={e} />
+              <EventCard
+                key={e.id}
+                event={e}
+                expandVersion={expandVersion}
+                collapseVersion={collapseVersion}
+              />
             ))}
             {shown.length > 0 && visibleEvents.length === 0 && (
               <div className="empty">no events match this trace filter</div>
@@ -625,6 +653,58 @@ function traceSourceLabel(source: CaseTimeline["trace_source"]) {
 
 function artifactUrl(runId: string, caseId: string, name: string): string {
   return `/api/runs/${encodeURIComponent(runId)}/cases/${encodeURIComponent(caseId)}/artifacts/${encodeURIComponent(name)}`;
+}
+
+function exportTraceMarkdown(timeline: CaseTimeline, events: TraceEvent[]) {
+  const lines = [
+    `# ClinicalHarness Trace: ${timeline.case_id}`,
+    "",
+    `- Run: \`${timeline.run_id}\``,
+    `- Case: \`${timeline.case_id}\``,
+    `- Source: ${traceSourceLabel(timeline.trace_source)}`,
+    timeline.score ? `- Score: ${timeline.score}` : null,
+    timeline.expected_diagnosis ? `- Expected: ${timeline.expected_diagnosis}` : null,
+    timeline.model_diagnosis ? `- Model diagnosis: ${timeline.model_diagnosis}` : null,
+    `- Exported events: ${events.length}`,
+    "",
+    "## Events",
+    "",
+    ...events.flatMap((event) => eventMarkdown(event)),
+  ].filter((line): line is string => line !== null);
+
+  const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${safeFilename(timeline.run_id)}__${safeFilename(timeline.case_id)}__trace.md`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function eventMarkdown(event: TraceEvent): string[] {
+  const header = `### ${event.seq + 1}. ${event.type}: ${event.title}`;
+  const meta = [
+    `- Actor: ${event.actor}`,
+    event.round != null ? `- Round: ${event.round}` : null,
+    `- Status: ${event.status}`,
+    event.summary ? `- Summary: ${event.summary}` : null,
+  ].filter((line): line is string => line !== null);
+  return [
+    header,
+    "",
+    ...meta,
+    "",
+    "```json",
+    JSON.stringify(event.payload, null, 2),
+    "```",
+    "",
+  ];
+}
+
+function safeFilename(value: string): string {
+  return value.replace(/[^a-z0-9._-]+/gi, "_").replace(/^_+|_+$/g, "") || "trace";
 }
 
 function truncate(s: string, n: number): string {
