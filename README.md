@@ -14,7 +14,11 @@ diagnosis run as an inspectable trace: problem representation, generated
 queries, PubMed/PMC tool calls, retrieved evidence, synthesis, injected prompt
 packet, visible model responses, final diagnosis, and judge verdict.
 
-![ClinicalHarness Viewer trace](viewer/assets/clinical-viewer-trace.jpg)
+<a href="viewer/assets/clinical-viewer-trace.jpg">
+  <img src="viewer/assets/clinical-viewer-trace.jpg" alt="ClinicalHarness Viewer trace" width="100%">
+</a>
+
+<sub>Click the screenshot to view it full size.</sub>
 
 What makes it useful:
 

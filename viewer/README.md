@@ -4,7 +4,11 @@ A Codex / Claude-Code-style UI for **watching a diagnosis run unfold** — the
 clinical reasoning, query planning, literature retrieval, evidence synthesis,
 final diagnosis, and the judge's verdict — as a streaming agent trace.
 
-![ClinicalHarness Viewer trace](assets/clinical-viewer-trace.jpg)
+<a href="assets/clinical-viewer-trace.jpg">
+  <img src="assets/clinical-viewer-trace.jpg" alt="ClinicalHarness Viewer trace" width="100%">
+</a>
+
+<sub>Click the screenshot to view it full size.</sub>
 
 > **Status: MVP plus native event ledgers.** It reconstructs timelines from the
 > artifacts a finished run leaves in `runs/<run>/` and can "replay" them
