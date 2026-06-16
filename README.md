@@ -20,6 +20,15 @@ packet, visible model responses, final diagnosis, and judge verdict.
 
 <sub>Click the screenshot to view it full size.</sub>
 
+<details>
+<summary>Detailed trace screenshot with expanded cards</summary>
+
+<a href="viewer/assets/clinical-viewer-trace-tall.jpg">
+  <img src="viewer/assets/clinical-viewer-trace-tall.jpg" alt="ClinicalHarness Viewer expanded trace" width="520">
+</a>
+
+</details>
+
 What makes it useful:
 
 - **Watch the run unfold.** Replay a finished run event-by-event, or stream live

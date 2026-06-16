@@ -10,6 +10,15 @@ final diagnosis, and the judge's verdict — as a streaming agent trace.
 
 <sub>Click the screenshot to view it full size.</sub>
 
+<details>
+<summary>Detailed trace screenshot with expanded cards</summary>
+
+<a href="assets/clinical-viewer-trace-tall.jpg">
+  <img src="assets/clinical-viewer-trace-tall.jpg" alt="ClinicalHarness Viewer expanded trace" width="520">
+</a>
+
+</details>
+
 > **Status: MVP plus native event ledgers.** It reconstructs timelines from the
 > artifacts a finished run leaves in `runs/<run>/` and can "replay" them
 > event-by-event. `retrieval_guided_eval` now also writes
