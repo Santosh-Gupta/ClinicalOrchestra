@@ -7,6 +7,7 @@ invariants rather than specific cases. Run with: ``pytest`` from viewer/backend.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -213,6 +214,93 @@ def test_native_event_ledger_artifact_is_served(tmp_path, monkeypatch):
     assert body["name"] == "events"
     assert body["filename"] == "case-1.events.jsonl"
     assert '"case_started"' in body["content"]
+
+
+def test_save_trace_writes_user_generated_bundle(tmp_path, monkeypatch):
+    fastapi_testclient = pytest.importorskip("fastapi.testclient")
+    from clinical_viewer.app import app
+
+    run_dir = tmp_path / "runs" / "run-1"
+    export_dir = tmp_path / "exports"
+    run_dir.mkdir(parents=True)
+    case_id = "case-1"
+    (run_dir / "retrieval_guided_results.jsonl").write_text(
+        json.dumps(
+            {
+                "case_id": case_id,
+                "expected_diagnosis": "Anti-NMDA receptor encephalitis",
+                "model_final_diagnosis": "Autoimmune encephalitis",
+                "score": "pass",
+                "score_method": "judge",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (run_dir / f"{case_id}.events.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "id": "e0000",
+                        "seq": 0,
+                        "run_id": "run-1",
+                        "case_id": case_id,
+                        "type": "case_started",
+                        "actor": "runner",
+                        "title": "Case case-1",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "id": "e0001",
+                        "seq": 1,
+                        "run_id": "run-1",
+                        "case_id": case_id,
+                        "type": "answer",
+                        "actor": "diagnostician",
+                        "title": "Final diagnosis",
+                        "payload": {"final_diagnosis": "Autoimmune encephalitis"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "id": "e0002",
+                        "seq": 2,
+                        "run_id": "run-1",
+                        "case_id": case_id,
+                        "type": "case_completed",
+                        "actor": "runner",
+                        "title": "Case complete",
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CLINICAL_HARNESS_RUNS", str(tmp_path / "runs"))
+    monkeypatch.setenv("CLINICAL_VIEWER_USER_GENERATED", str(export_dir))
+    config_mod.runs_dir.cache_clear()
+    config_mod.user_generated_dir.cache_clear()
+    try:
+        response = fastapi_testclient.TestClient(app).post("/api/runs/run-1/cases/case-1/save")
+    finally:
+        config_mod.runs_dir.cache_clear()
+        config_mod.user_generated_dir.cache_clear()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["correct_answer"] == "Anti-NMDA receptor encephalitis"
+    assert body["event_count"] == 3
+    json_path = export_dir / "traces" / Path(body["directory"]).name / "trace.json"
+    md_path = export_dir / "traces" / Path(body["directory"]).name / "trace.md"
+    assert json_path.exists()
+    assert md_path.exists()
+    saved = json.loads(json_path.read_text(encoding="utf-8"))
+    assert saved["correct_answer"] == "Anti-NMDA receptor encephalitis"
+    assert saved["events"][1]["payload"]["final_diagnosis"] == "Autoimmune encephalitis"
+    assert "Correct answer: Anti-NMDA receptor encephalitis" in md_path.read_text(encoding="utf-8")
 
 
 def test_runledger_case_is_discovered_and_replayed(tmp_path, monkeypatch):

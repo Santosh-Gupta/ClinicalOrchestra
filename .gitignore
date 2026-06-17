@@ -14,6 +14,7 @@ build/
 runs/
 data/cache/
 data/eval/
+viewer/user_generated/
 *.jsonl
 
 # Local/private materials that must not be uploaded.

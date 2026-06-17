@@ -44,6 +44,9 @@ What makes it useful:
   reasoning, judge, warning, and error events.
 - **Use the space you need.** Collapsible Runs and Cases panels let the trace
   take over the full window for demos and deep review.
+- **Save optimization-ready traces.** Persist a user-generated `trace.json` and
+  `trace.md` bundle with events, artifacts, model answer, score, and the correct
+  answer when available.
 
 Open the full guide at [viewer/README.md](viewer/README.md).
 

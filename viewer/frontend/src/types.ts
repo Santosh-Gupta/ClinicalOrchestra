@@ -74,6 +74,20 @@ export interface ArtifactContent {
   content: string;
 }
 
+export interface SaveTraceResponse {
+  status: "ok";
+  saved_at: string;
+  directory: string;
+  files: {
+    json: string;
+    markdown: string;
+  };
+  event_count: number;
+  correct_answer: string | null;
+  model_diagnosis: string | null;
+  score: string | null;
+}
+
 export interface CaseSummary {
   case_id: string;
   expected_diagnosis: string | null;

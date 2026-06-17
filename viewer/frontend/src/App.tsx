@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, streamTimeline } from "./api";
 import { EventCard } from "./components/EventCard";
 import { Badge } from "./components/ui";
-import type { ArtifactContent, CaseArtifact, CaseSummary, CaseTimeline, RunSummary, Status, TraceEvent } from "./types";
+import type { ArtifactContent, CaseArtifact, CaseSummary, CaseTimeline, RunSummary, SaveTraceResponse, Status, TraceEvent } from "./types";
 
 type TraceFilter = "all" | "model" | "retrieval" | "reasoning" | "judgement" | "errors";
 
@@ -22,6 +22,11 @@ export default function App() {
   const [casesPanelOpen, setCasesPanelOpen] = useState(true);
   const [expandVersion, setExpandVersion] = useState(0);
   const [collapseVersion, setCollapseVersion] = useState(0);
+  const [saveState, setSaveState] = useState<{
+    saving: boolean;
+    result: SaveTraceResponse | null;
+    error: string | null;
+  }>({ saving: false, result: null, error: null });
   const [artifactView, setArtifactView] = useState<{
     artifact: CaseArtifact;
     content: ArtifactContent | null;
@@ -75,6 +80,7 @@ export default function App() {
     setTraceFilter("all");
     setTraceSearch("");
     setArtifactView(null);
+    setSaveState({ saving: false, result: null, error: null });
     api
       .timeline(activeRun, activeCase)
       .then((tl) => {
@@ -149,6 +155,21 @@ export default function App() {
           artifact,
           content: null,
           loading: false,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+  }
+
+  function saveTrace() {
+    if (!timeline) return;
+    setSaveState({ saving: true, result: null, error: null });
+    api
+      .saveTrace(timeline.run_id, timeline.case_id)
+      .then((result) => setSaveState({ saving: false, result, error: null }))
+      .catch((err) =>
+        setSaveState({
+          saving: false,
+          result: null,
           error: err instanceof Error ? err.message : String(err),
         }),
       );
@@ -338,6 +359,14 @@ export default function App() {
               >
                 Export MD
               </button>
+              <button
+                className="btn"
+                onClick={saveTrace}
+                disabled={saveState.saving || shown.length === 0}
+                title="Save structured JSON and Markdown under viewer/user_generated/"
+              >
+                {saveState.saving ? "Saving…" : "Save"}
+              </button>
               {timeline.score && (
                 <Badge status={timeline.score === "pass" ? "pass" : "fail"} />
               )}
@@ -420,6 +449,12 @@ export default function App() {
                   showing {visibleEvents.length} of {shown.length} events
                 </div>
               )}
+              {saveState.result && (
+                <div className="trace-save">
+                  saved {saveState.result.event_count} events to <code>{saveState.result.directory}</code>
+                </div>
+              )}
+              {saveState.error && <div className="trace-save error-text">{saveState.error}</div>}
             </div>
             {visibleEvents.map((e) => (
               <EventCard

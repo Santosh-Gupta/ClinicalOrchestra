@@ -26,6 +26,20 @@ def runs_dir() -> Path:
     return (_REPO_ROOT / "runs").resolve()
 
 
+@lru_cache(maxsize=1)
+def user_generated_dir() -> Path:
+    """Directory for viewer-created exports.
+
+    These files are intentionally separate from harness run artifacts so saved
+    traces can be consumed by other systems without mutating benchmark outputs.
+    """
+
+    env = os.environ.get("CLINICAL_VIEWER_USER_GENERATED")
+    if env:
+        return Path(env).expanduser().resolve()
+    return (_REPO_ROOT / "viewer" / "user_generated").resolve()
+
+
 def cors_origins() -> list[str]:
     """Allowed origins for the dev frontend.
 

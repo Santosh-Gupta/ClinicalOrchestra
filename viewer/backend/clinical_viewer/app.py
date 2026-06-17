@@ -8,6 +8,7 @@ GET  /api/runs/{run_id}/cases                    -> [CaseSummary]
 GET  /api/runs/{run_id}/cases/{case_id}/timeline -> CaseTimeline
 GET  /api/runs/{run_id}/cases/{case_id}/stream   -> text/event-stream (SSE)
 GET  /api/runs/{run_id}/cases/{case_id}/artifacts/{name} -> raw artifact text
+POST /api/runs/{run_id}/cases/{case_id}/save     -> persist trace JSON + Markdown
 POST /api/live/events                            -> publish one live Event
 POST /api/live/close                             -> close one live stream
 
@@ -18,6 +19,9 @@ finished timeline event-by-event with a small delay.
 from __future__ import annotations
 
 import asyncio
+import json
+import re
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
@@ -27,7 +31,7 @@ from fastapi.responses import StreamingResponse
 from . import runs as runs_mod
 from .adapters.live import bus
 from .adapters.replay import ARTIFACTS, LEDGER_ARTIFACTS, build_case_timeline
-from .config import cors_origins, runs_dir
+from .config import cors_origins, runs_dir, user_generated_dir
 from .events import CaseSummary, CaseTimeline, Event, RunSummary
 
 app = FastAPI(title="ClinicalHarness Viewer", version="0.1.0")
@@ -85,6 +89,52 @@ def get_artifact(run_id: str, case_id: str, name: str) -> dict:
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"artifact not found: {path.name}")
     return {"name": name, "filename": path.name, "content": path.read_text(encoding="utf-8")}
+
+
+@app.post("/api/runs/{run_id}/cases/{case_id}/save")
+def save_trace(run_id: str, case_id: str) -> dict:
+    """Persist a trace bundle under viewer/user_generated/traces/."""
+
+    _guard_run_id(run_id)
+    _guard_case_id(case_id)
+    timeline = get_timeline(run_id, case_id)
+    saved_at = datetime.now(UTC).replace(microsecond=0).isoformat()
+    stem = f"{_safe_filename(run_id)}__{_safe_filename(case_id)}__{_safe_filename(saved_at)}"
+    out_dir = user_generated_dir() / "traces" / stem
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    payload = {
+        "schema_version": 1,
+        "saved_at": saved_at,
+        "kind": "clinical_harness_trace_export",
+        "run_id": timeline.run_id,
+        "case_id": timeline.case_id,
+        "title": timeline.title,
+        "trace_source": timeline.trace_source,
+        "trace_notice": timeline.trace_notice,
+        "correct_answer": timeline.expected_diagnosis,
+        "expected_diagnosis": timeline.expected_diagnosis,
+        "model_diagnosis": timeline.model_diagnosis,
+        "score": timeline.score,
+        "score_method": timeline.score_method,
+        "artifacts": [artifact.model_dump(mode="json") for artifact in timeline.artifacts],
+        "events": [event.model_dump(mode="json") for event in timeline.events],
+    }
+    json_path = out_dir / "trace.json"
+    md_path = out_dir / "trace.md"
+    json_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    md_path.write_text(_trace_markdown(timeline, saved_at), encoding="utf-8")
+
+    return {
+        "status": "ok",
+        "saved_at": saved_at,
+        "directory": str(out_dir),
+        "files": {"json": str(json_path), "markdown": str(md_path)},
+        "event_count": len(timeline.events),
+        "correct_answer": timeline.expected_diagnosis,
+        "model_diagnosis": timeline.model_diagnosis,
+        "score": timeline.score,
+    }
 
 
 @app.get("/api/runs/{run_id}/cases/{case_id}/stream")
@@ -173,3 +223,49 @@ def _guard_case_id(case_id: str) -> None:
 def _guard_run_id(run_id: str) -> None:
     if "/" in run_id or "\\" in run_id or run_id in ("", ".", ".."):
         raise HTTPException(status_code=400, detail="invalid run id")
+
+
+def _safe_filename(value: str) -> str:
+    clean = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("_")
+    return clean or "trace"
+
+
+def _trace_markdown(timeline: CaseTimeline, saved_at: str) -> str:
+    lines = [
+        f"# ClinicalHarness Trace: {timeline.case_id}",
+        "",
+        f"- Saved: `{saved_at}`",
+        f"- Run: `{timeline.run_id}`",
+        f"- Case: `{timeline.case_id}`",
+        f"- Trace source: {timeline.trace_source}",
+        f"- Correct answer: {timeline.expected_diagnosis or 'unknown'}",
+        f"- Model diagnosis: {timeline.model_diagnosis or 'unknown'}",
+        f"- Score: {timeline.score or 'unknown'}",
+        f"- Score method: {timeline.score_method or 'unknown'}",
+        f"- Events: {len(timeline.events)}",
+        "",
+        "## Events",
+        "",
+    ]
+    for event in timeline.events:
+        lines.extend(
+            [
+                f"### {event.seq + 1}. {event.type}: {event.title}",
+                "",
+                f"- Actor: {event.actor}",
+                f"- Status: {event.status}",
+                f"- Round: {event.round if event.round is not None else 'n/a'}",
+            ]
+        )
+        if event.summary:
+            lines.append(f"- Summary: {event.summary}")
+        lines.extend(
+            [
+                "",
+                "```json",
+                json.dumps(event.payload, indent=2, ensure_ascii=False),
+                "```",
+                "",
+            ]
+        )
+    return "\n".join(lines)

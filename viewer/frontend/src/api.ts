@@ -1,7 +1,13 @@
-import type { ArtifactContent, CaseSummary, CaseTimeline, RunSummary, TraceEvent } from "./types";
+import type { ArtifactContent, CaseSummary, CaseTimeline, RunSummary, SaveTraceResponse, TraceEvent } from "./types";
 
 async function getJSON<T>(url: string): Promise<T> {
   const res = await fetch(url);
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText} for ${url}`);
+  return res.json() as Promise<T>;
+}
+
+async function postJSON<T>(url: string): Promise<T> {
+  const res = await fetch(url, { method: "POST" });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText} for ${url}`);
   return res.json() as Promise<T>;
 }
@@ -17,6 +23,10 @@ export const api = {
   artifact: (runId: string, caseId: string, name: string) =>
     getJSON<ArtifactContent>(
       `/api/runs/${encodeURIComponent(runId)}/cases/${encodeURIComponent(caseId)}/artifacts/${encodeURIComponent(name)}`,
+    ),
+  saveTrace: (runId: string, caseId: string) =>
+    postJSON<SaveTraceResponse>(
+      `/api/runs/${encodeURIComponent(runId)}/cases/${encodeURIComponent(caseId)}/save`,
     ),
 };
 

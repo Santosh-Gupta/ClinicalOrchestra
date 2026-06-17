@@ -181,6 +181,14 @@ body {
   font-family: inherit; font-size: 12.5px;
 }
 .trace-count { margin-top: 7px; color: var(--text-faint); font-size: 11.5px; }
+.trace-save {
+  margin-top: 8px; color: var(--text-dim); font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+.trace-save code {
+  font-family: var(--mono); color: var(--text); background: var(--panel);
+  border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px;
+}
 
 .event {
   position: relative; padding: 4px 28px 4px 64px; margin: 0;

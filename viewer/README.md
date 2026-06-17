@@ -124,6 +124,16 @@ Useful controls:
 - **Replay** streams the current timeline event-by-event for the unfolding
   agent-trace effect.
 - **Show all** restores the full trace after replay or filtering.
+- **Expand all** and **Collapse all** open or close every detailed card in the
+  current trace.
+- **Export MD** downloads the currently visible trace events as a local Markdown
+  file.
+- **Save** writes a backend-generated bundle under
+  `viewer/user_generated/traces/<run>__<case>__<timestamp>/`. Each bundle
+  contains `trace.json` for downstream optimization/evaluation systems and
+  `trace.md` for human review. The JSON includes the correct answer as
+  `correct_answer` when the run has one, plus model diagnosis, score, artifacts,
+  and every normalized event payload. `viewer/user_generated/` is git-ignored.
 - **Hide** in the Runs or Cases panel collapses that side panel so the trace can
   use more of the window. **Show Runs** and **Show Cases** restore hidden panels
   from the trace header.
@@ -196,6 +206,7 @@ Open http://localhost:5173.
 | GET | `/api/runs/{run}/cases/{case}/timeline` | `CaseTimeline` |
 | GET | `/api/runs/{run}/cases/{case}/stream?delay_ms=` | SSE `Event` stream |
 | GET | `/api/runs/{run}/cases/{case}/artifacts/{name}` | raw artifact text |
+| POST | `/api/runs/{run}/cases/{case}/save` | user-generated `trace.json` + `trace.md` bundle |
 | POST | `/api/live/events` | publish one live `Event` |
 | POST | `/api/live/close` | close a live stream without a terminal event |
 
