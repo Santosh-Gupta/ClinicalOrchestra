@@ -88,6 +88,34 @@ export interface SaveTraceResponse {
   score: string | null;
 }
 
+export interface NewCaseRequest {
+  title: string;
+  prompt: string;
+  correct_answer?: string | null;
+  aliases?: string[];
+  case_id?: string | null;
+  run_id?: string | null;
+  dry_run: boolean;
+  retrieve: boolean;
+  judge: boolean;
+  max_queries: number;
+  articles_per_query: number;
+  max_rounds: number;
+  model?: string | null;
+}
+
+export interface NewCaseResponse {
+  status: string;
+  run_id: string;
+  case_id: string;
+  run_dir: string;
+  manifest_path: string;
+  trace_url: string;
+  dry_run: boolean;
+  retrieve: boolean;
+  judge: boolean;
+}
+
 export interface CaseSummary {
   case_id: string;
   expected_diagnosis: string | null;

@@ -7,6 +7,7 @@ invariants rather than specific cases. Run with: ``pytest`` from viewer/backend.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -301,6 +302,57 @@ def test_save_trace_writes_user_generated_bundle(tmp_path, monkeypatch):
     assert saved["correct_answer"] == "Anti-NMDA receptor encephalitis"
     assert saved["events"][1]["payload"]["final_diagnosis"] == "Autoimmune encephalitis"
     assert "Correct answer: Anti-NMDA receptor encephalitis" in md_path.read_text(encoding="utf-8")
+
+
+def test_new_case_endpoint_writes_user_generated_run(tmp_path, monkeypatch):
+    fastapi_testclient = pytest.importorskip("fastapi.testclient")
+    from clinical_viewer.app import app
+
+    generated_dir = tmp_path / "viewer-generated"
+    monkeypatch.setenv("CLINICAL_HARNESS_RUNS", str(tmp_path / "runs"))
+    monkeypatch.setenv("CLINICAL_VIEWER_USER_GENERATED", str(generated_dir))
+    config_mod.runs_dir.cache_clear()
+    config_mod.user_generated_dir.cache_clear()
+    config_mod.user_generated_runs_dir.cache_clear()
+    try:
+        response = fastapi_testclient.TestClient(app).post(
+            "/api/new-case",
+            json={
+                "title": "Synthetic encephalitis case",
+                "prompt": (
+                    "A 19-year-old woman develops subacute psychosis, seizures, orofacial dyskinesias, "
+                    "and lymphocytic CSF pleocytosis over three weeks."
+                ),
+                "correct_answer": "anti-NMDA receptor encephalitis",
+                "aliases": ["NMDAR encephalitis"],
+                "dry_run": True,
+                "retrieve": False,
+                "judge": False,
+                "max_queries": 2,
+                "articles_per_query": 3,
+                "max_rounds": 1,
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        event_path = Path(body["run_dir"]) / f"{body['case_id']}.events.jsonl"
+        for _ in range(50):
+            if event_path.exists() and "case_completed" in event_path.read_text(encoding="utf-8"):
+                break
+            time.sleep(0.05)
+        else:
+            pytest.fail("new case background run did not finish")
+
+        run = next(run for run in runs_mod.list_runs() if run.run_id == body["run_id"])
+        cases = runs_mod.list_cases(body["run_id"])
+    finally:
+        config_mod.runs_dir.cache_clear()
+        config_mod.user_generated_dir.cache_clear()
+        config_mod.user_generated_runs_dir.cache_clear()
+
+    assert run.path == body["run_dir"]
+    assert cases[0].case_id == body["case_id"]
+    assert cases[0].expected_diagnosis == "anti-NMDA receptor encephalitis"
 
 
 def test_runledger_case_is_discovered_and_replayed(tmp_path, monkeypatch):

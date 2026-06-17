@@ -52,7 +52,8 @@ Three panes, like an agent-trace IDE:
 
 1. **Runs** — every directory under `runs/`, with pass/fail tallies.
    Runs with native event ledgers show trace counts; active live cases and
-   growing incomplete traces are badged.
+   growing incomplete traces are badged. Viewer-generated runs under
+   `viewer/user_generated/runs/` appear here too.
 2. **Cases** — each case in a run, with its judged score, expected diagnosis,
    native event count, and live/growing status.
 3. **Trace** — the reconstructed timeline: problem representation → per-round
@@ -123,6 +124,11 @@ Useful controls:
 
 - **Replay** streams the current timeline event-by-event for the unfolding
   agent-trace effect.
+- **New** opens a form for a brand-new de-identified case. The viewer writes a
+  one-case manifest under `viewer/user_generated/cases/`, runs it in the
+  background, and displays the generated run in the normal Runs/Cases/Trace
+  panels. Dry run is on by default; enable PubMed retrieval and model/judge calls
+  only when the relevant API environment is configured.
 - **Show all** restores the full trace after replay or filtering.
 - **Expand all** and **Collapse all** open or close every detailed card in the
   current trace.
@@ -207,6 +213,7 @@ Open http://localhost:5173.
 | GET | `/api/runs/{run}/cases/{case}/stream?delay_ms=` | SSE `Event` stream |
 | GET | `/api/runs/{run}/cases/{case}/artifacts/{name}` | raw artifact text |
 | POST | `/api/runs/{run}/cases/{case}/save` | user-generated `trace.json` + `trace.md` bundle |
+| POST | `/api/new-case` | create a viewer-generated case and start a background run |
 | POST | `/api/live/events` | publish one live `Event` |
 | POST | `/api/live/close` | close a live stream without a terminal event |
 

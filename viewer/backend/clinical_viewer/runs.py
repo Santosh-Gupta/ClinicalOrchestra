@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .adapters.live import bus
-from .config import runs_dir
+from .config import runs_dir, user_generated_runs_dir
 from .events import CaseSummary, RunSummary
 
 # Artifact suffixes that identify a case stem. Order is also the rough pipeline
@@ -38,10 +38,22 @@ def _safe_run_dir(run_id: str) -> Path:
 
     if "/" in run_id or "\\" in run_id or run_id in ("", ".", ".."):
         raise ValueError(f"invalid run id: {run_id!r}")
-    path = (runs_dir() / run_id).resolve()
-    if path.parent != runs_dir() or not path.is_dir():
-        raise FileNotFoundError(f"run not found: {run_id}")
-    return path
+    for root in _run_roots():
+        path = (root / run_id).resolve()
+        if path.parent == root and path.is_dir():
+            return path
+    raise FileNotFoundError(f"run not found: {run_id}")
+
+
+def _run_roots() -> tuple[Path, ...]:
+    roots: list[Path] = []
+    seen: set[Path] = set()
+    for root in (runs_dir(), user_generated_runs_dir()):
+        resolved = root.resolve()
+        if resolved not in seen:
+            roots.append(resolved)
+            seen.add(resolved)
+    return tuple(roots)
 
 
 def case_stems(run_path: Path) -> list[str]:
@@ -106,11 +118,10 @@ def load_results_index(run_path: Path) -> dict[str, dict]:
 def list_runs() -> list[RunSummary]:
     """All run directories, newest first."""
 
-    base = runs_dir()
-    if not base.is_dir():
-        disk_entries: list[Path] = []
-    else:
-        disk_entries = [entry for entry in base.iterdir() if entry.is_dir()]
+    disk_entries: list[Path] = []
+    for base in _run_roots():
+        if base.is_dir():
+            disk_entries.extend(entry for entry in base.iterdir() if entry.is_dir())
     summaries: list[RunSummary] = []
     seen_run_ids: set[str] = set()
     for entry in disk_entries:

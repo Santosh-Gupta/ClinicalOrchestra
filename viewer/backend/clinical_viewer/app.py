@@ -9,6 +9,7 @@ GET  /api/runs/{run_id}/cases/{case_id}/timeline -> CaseTimeline
 GET  /api/runs/{run_id}/cases/{case_id}/stream   -> text/event-stream (SSE)
 GET  /api/runs/{run_id}/cases/{case_id}/artifacts/{name} -> raw artifact text
 POST /api/runs/{run_id}/cases/{case_id}/save     -> persist trace JSON + Markdown
+POST /api/new-case                               -> create and run a viewer-submitted case
 POST /api/live/events                            -> publish one live Event
 POST /api/live/close                             -> close one live stream
 
@@ -20,18 +21,22 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
+import sys
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 
 from . import runs as runs_mod
 from .adapters.live import bus
 from .adapters.replay import ARTIFACTS, LEDGER_ARTIFACTS, build_case_timeline
-from .config import cors_origins, runs_dir, user_generated_dir
+from .config import cors_origins, runs_dir, user_generated_dir, user_generated_runs_dir
 from .events import CaseSummary, CaseTimeline, Event, RunSummary
 
 app = FastAPI(title="ClinicalHarness Viewer", version="0.1.0")
@@ -46,6 +51,35 @@ app.add_middleware(
 # Artifacts the UI may fetch raw (e.g. the retrieval prompt, the report).
 _RAW_ARTIFACTS = {name: suffix for name, _label, suffix in ARTIFACTS}
 _RAW_LEDGER_ARTIFACTS = {name: filename for name, _label, filename in LEDGER_ARTIFACTS}
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+class NewCaseRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=240)
+    prompt: str = Field(min_length=20, max_length=50000)
+    correct_answer: str | None = Field(default=None, max_length=1000)
+    aliases: list[str] = Field(default_factory=list, max_length=20)
+    case_id: str | None = Field(default=None, max_length=120)
+    run_id: str | None = Field(default=None, max_length=120)
+    dry_run: bool = True
+    retrieve: bool = False
+    judge: bool = False
+    max_queries: int = Field(default=2, ge=1, le=8)
+    articles_per_query: int = Field(default=3, ge=1, le=10)
+    max_rounds: int = Field(default=1, ge=1, le=4)
+    model: str | None = Field(default=None, max_length=120)
+
+
+class NewCaseResponse(BaseModel):
+    status: str
+    run_id: str
+    case_id: str
+    run_dir: str
+    manifest_path: str
+    trace_url: str
+    dry_run: bool
+    retrieve: bool
+    judge: bool
 
 
 @app.get("/api/health")
@@ -75,6 +109,66 @@ def get_timeline(run_id: str, case_id: str) -> CaseTimeline:
         return live
     run_dir = _resolve(run_id)
     return build_case_timeline(run_dir, run_id, case_id)
+
+
+@app.post("/api/new-case", response_model=NewCaseResponse)
+async def create_new_case(payload: NewCaseRequest) -> NewCaseResponse:
+    """Create a viewer-owned case manifest and run it in the background."""
+
+    submitted_at = datetime.now(UTC).replace(microsecond=0)
+    case_id = _safe_case_slug(payload.case_id or payload.title, prefix="user_case")
+    run_id = _safe_run_slug(payload.run_id or f"user_generated_{submitted_at.strftime('%Y%m%d_%H%M%S')}")
+    case_root = user_generated_dir() / "cases" / run_id
+    run_root = user_generated_runs_dir()
+    run_dir = run_root / run_id
+    manifest_path = case_root / "manifest.jsonl"
+    if run_dir.exists():
+        raise HTTPException(status_code=409, detail=f"run already exists: {run_id}")
+    case_root.mkdir(parents=True, exist_ok=True)
+    run_root.mkdir(parents=True, exist_ok=True)
+
+    answer_key = {
+        "diagnosis": payload.correct_answer.strip() if payload.correct_answer and payload.correct_answer.strip() else "unknown",
+        "aliases": [alias.strip() for alias in payload.aliases if alias.strip()],
+    }
+    manifest_row = {
+        "case_id": case_id,
+        "title": payload.title.strip(),
+        "challenge_prompt": payload.prompt.strip(),
+        "answer_key": answer_key,
+        "source": "viewer_user_generated",
+        "created_at": submitted_at.isoformat(),
+        "metadata": {"correct_answer_provided": answer_key["diagnosis"] != "unknown"},
+    }
+    manifest_path.write_text(json.dumps(manifest_row, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    loop = asyncio.get_running_loop()
+    thread = threading.Thread(
+        target=_run_new_case_background,
+        kwargs={
+            "payload": payload,
+            "manifest_path": manifest_path,
+            "run_dir": run_dir,
+            "run_id": run_id,
+            "case_id": case_id,
+            "loop": loop,
+        },
+        name=f"clinical-viewer-new-case-{run_id}",
+        daemon=True,
+    )
+    thread.start()
+
+    return NewCaseResponse(
+        status="started",
+        run_id=run_id,
+        case_id=case_id,
+        run_dir=str(run_dir),
+        manifest_path=str(manifest_path),
+        trace_url=f"/api/runs/{run_id}/cases/{case_id}/stream",
+        dry_run=payload.dry_run,
+        retrieve=payload.retrieve,
+        judge=payload.judge and bool(payload.correct_answer and payload.correct_answer.strip()),
+    )
 
 
 @app.get("/api/runs/{run_id}/cases/{case_id}/artifacts/{name}")
@@ -208,6 +302,125 @@ async def close_live_stream(payload: dict[str, str]) -> dict:
     return {"status": "ok", "run_id": run_id, "case_id": case_id}
 
 
+def _run_new_case_background(
+    *,
+    payload: NewCaseRequest,
+    manifest_path: Path,
+    run_dir: Path,
+    run_id: str,
+    case_id: str,
+    loop: asyncio.AbstractEventLoop,
+) -> None:
+    """Run the submitted case without blocking the FastAPI request."""
+
+    try:
+        src_dir = _REPO_ROOT / "src"
+        if str(src_dir) not in sys.path:
+            sys.path.insert(0, str(src_dir))
+        from clinical_harness.ncbi import NcbiClient, NcbiConfig
+        from clinical_harness.retrieval_guided_eval import HarnessConfig, run_retrieval_guided_manifest_eval
+
+        pubmed_client = (
+            NcbiClient(
+                NcbiConfig(
+                    email=os.getenv("NCBI_EMAIL"),
+                    api_key=os.getenv("NCBI_API_KEY"),
+                    tool="ClinicalHarnessViewer",
+                )
+            )
+            if payload.retrieve
+            else None
+        )
+
+        def emitter(raw_event: dict) -> None:
+            try:
+                event = Event.model_validate(raw_event)
+            except ValueError:
+                return
+            try:
+                loop.call_soon_threadsafe(lambda: asyncio.create_task(bus.publish(event)))
+            except RuntimeError:
+                pass
+
+        run_retrieval_guided_manifest_eval(
+            manifest_path=manifest_path,
+            out_dir=run_dir,
+            dry_run=payload.dry_run,
+            retrieve=payload.retrieve,
+            pubmed_client=pubmed_client,
+            model_name=payload.model,
+            max_queries=payload.max_queries,
+            articles_per_query=payload.articles_per_query,
+            max_rounds=payload.max_rounds,
+            judge=payload.judge and bool(payload.correct_answer and payload.correct_answer.strip()),
+            concurrency=1,
+            emitter=emitter,
+            config=HarnessConfig(eval_mode=False),
+        )
+    except Exception as exc:  # noqa: BLE001 - surface failures as trace events.
+        _write_new_case_error_trace(run_dir, run_id, case_id, str(exc), loop)
+
+
+def _write_new_case_error_trace(
+    run_dir: Path,
+    run_id: str,
+    case_id: str,
+    error: str,
+    loop: asyncio.AbstractEventLoop,
+) -> None:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(UTC).replace(microsecond=0).isoformat()
+    events = [
+        Event(
+            id="e0000",
+            seq=0,
+            ts=ts,
+            run_id=run_id,
+            case_id=case_id,
+            type="case_started",
+            actor="runner",
+            title=f"Case {case_id}",
+            status="error",
+            payload={"source": "viewer_new_case"},
+        ),
+        Event(
+            id="e0001",
+            seq=1,
+            ts=ts,
+            run_id=run_id,
+            case_id=case_id,
+            type="error",
+            actor="system",
+            title="New case run failed",
+            summary=error,
+            status="error",
+            payload={"error": error},
+        ),
+        Event(
+            id="e0002",
+            seq=2,
+            ts=ts,
+            run_id=run_id,
+            case_id=case_id,
+            type="case_completed",
+            actor="runner",
+            title="Case complete",
+            summary="failed",
+            status="error",
+            payload={"error": error},
+        ),
+    ]
+    (run_dir / f"{case_id}.events.jsonl").write_text(
+        "".join(event.model_dump_json() + "\n" for event in events),
+        encoding="utf-8",
+    )
+    for event in events:
+        try:
+            loop.call_soon_threadsafe(lambda event=event: asyncio.create_task(bus.publish(event)))
+        except RuntimeError:
+            pass
+
+
 def _resolve(run_id: str) -> Path:
     try:
         return runs_mod.resolve_case_dir(run_id)
@@ -228,6 +441,21 @@ def _guard_run_id(run_id: str) -> None:
 def _safe_filename(value: str) -> str:
     clean = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("_")
     return clean or "trace"
+
+
+def _safe_case_slug(value: str, *, prefix: str) -> str:
+    slug = _safe_filename(value.lower().replace(" ", "_"))
+    slug = re.sub(r"_+", "_", slug)[:80].strip("_")
+    if not slug or slug == "trace":
+        slug = prefix
+    return slug
+
+
+def _safe_run_slug(value: str) -> str:
+    slug = _safe_filename(value)
+    if slug in ("", ".", "..", "trace"):
+        slug = f"user_generated_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
+    return slug[:120]
 
 
 def _trace_markdown(timeline: CaseTimeline, saved_at: str) -> str:

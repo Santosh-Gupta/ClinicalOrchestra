@@ -1,8 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { api, streamTimeline } from "./api";
 import { EventCard } from "./components/EventCard";
 import { Badge } from "./components/ui";
-import type { ArtifactContent, CaseArtifact, CaseSummary, CaseTimeline, RunSummary, SaveTraceResponse, Status, TraceEvent } from "./types";
+import type {
+  ArtifactContent,
+  CaseArtifact,
+  CaseSummary,
+  CaseTimeline,
+  NewCaseRequest,
+  NewCaseResponse,
+  RunSummary,
+  SaveTraceResponse,
+  Status,
+  TraceEvent,
+} from "./types";
 
 type TraceFilter = "all" | "model" | "retrieval" | "reasoning" | "judgement" | "errors";
 
@@ -12,6 +23,12 @@ export default function App() {
   const [cases, setCases] = useState<CaseSummary[]>([]);
   const [caseFilter, setCaseFilter] = useState("");
   const [activeCase, setActiveCase] = useState<string | null>(null);
+  const [newCaseOpen, setNewCaseOpen] = useState(false);
+  const [newCaseState, setNewCaseState] = useState<{
+    submitting: boolean;
+    result: NewCaseResponse | null;
+    error: string | null;
+  }>({ submitting: false, result: null, error: null });
 
   const [timeline, setTimeline] = useState<CaseTimeline | null>(null);
   const [shown, setShown] = useState<TraceEvent[]>([]);
@@ -144,6 +161,30 @@ export default function App() {
     startStream({ delayMs: activeCaseSummary?.is_live ? 0 : 300, reset: true });
   }
 
+  function submitNewCase(payload: NewCaseRequest) {
+    setNewCaseState({ submitting: true, result: null, error: null });
+    api
+      .newCase(payload)
+      .then((result) => {
+        setNewCaseState({ submitting: false, result, error: null });
+        setNewCaseOpen(false);
+        refreshRuns();
+        setActiveRun(result.run_id);
+        window.setTimeout(() => {
+          refreshRuns();
+          refreshCases(result.run_id);
+          setActiveCase(result.case_id);
+        }, 700);
+      })
+      .catch((err) =>
+        setNewCaseState({
+          submitting: false,
+          result: null,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+  }
+
   function openArtifact(artifact: CaseArtifact) {
     if (!timeline) return;
     setArtifactView({ artifact, content: null, loading: true, error: null });
@@ -194,6 +235,13 @@ export default function App() {
             <div className="header-actions">
               <button className="icon-btn" onClick={refreshRuns} title="Refresh runs">
                 ↻
+              </button>
+              <button
+                className="panel-action"
+                onClick={() => setNewCaseOpen(true)}
+                title="Create a new viewer-generated case"
+              >
+                New
               </button>
               <button
                 className="panel-action"
@@ -279,6 +327,11 @@ export default function App() {
           </button>
         ))}
         {activeRun && cases.length === 0 && <div className="empty">no cases found</div>}
+        {newCaseState.result && (
+          <div className="rail-note">
+            started <code>{newCaseState.result.case_id}</code>
+          </div>
+        )}
       </div>
 
       {/* Main: timeline */}
@@ -481,6 +534,14 @@ export default function App() {
           onClose={() => setArtifactView(null)}
         />
       )}
+      {newCaseOpen && (
+        <NewCaseDialog
+          submitting={newCaseState.submitting}
+          error={newCaseState.error}
+          onSubmit={submitNewCase}
+          onClose={() => setNewCaseOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -600,6 +661,133 @@ function ArtifactPanel({
       {loading && <div className="artifact-empty">loading…</div>}
       {error && <div className="artifact-empty error-text">{error}</div>}
       {content && <pre className="artifact-code">{content.content}</pre>}
+    </div>
+  );
+}
+
+function NewCaseDialog({
+  submitting,
+  error,
+  onSubmit,
+  onClose,
+}: {
+  submitting: boolean;
+  error: string | null;
+  onSubmit: (payload: NewCaseRequest) => void;
+  onClose: () => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [correctAnswer, setCorrectAnswer] = useState("");
+  const [aliases, setAliases] = useState("");
+  const [dryRun, setDryRun] = useState(true);
+  const [retrieve, setRetrieve] = useState(false);
+  const [judge, setJudge] = useState(false);
+  const [maxQueries, setMaxQueries] = useState(2);
+  const [articlesPerQuery, setArticlesPerQuery] = useState(3);
+  const [maxRounds, setMaxRounds] = useState(1);
+  const [model, setModel] = useState("");
+
+  const canSubmit = title.trim().length > 0 && prompt.trim().length >= 20 && !submitting;
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!canSubmit) return;
+    onSubmit({
+      title: title.trim(),
+      prompt: prompt.trim(),
+      correct_answer: correctAnswer.trim() || null,
+      aliases: aliases
+        .split("\n")
+        .map((alias) => alias.trim())
+        .filter(Boolean),
+      dry_run: dryRun,
+      retrieve,
+      judge: judge && Boolean(correctAnswer.trim()),
+      max_queries: maxQueries,
+      articles_per_query: articlesPerQuery,
+      max_rounds: maxRounds,
+      model: model.trim() || null,
+    });
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <form className="new-case-dialog" onSubmit={submit}>
+        <div className="artifact-panel-head">
+          <div>
+            <div className="eyebrow">viewer generated</div>
+            <div className="artifact-title">New case</div>
+          </div>
+          <button type="button" className="icon-btn" onClick={onClose} title="Close">
+            x
+          </button>
+        </div>
+        <div className="new-case-body">
+          <label className="field">
+            <span>title</span>
+            <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Acute neurologic syndrome" />
+          </label>
+          <label className="field">
+            <span>case text</span>
+            <textarea
+              value={prompt}
+              onChange={(event) => setPrompt(event.target.value)}
+              placeholder="Paste the de-identified case presentation..."
+              rows={8}
+            />
+          </label>
+          <div className="field-grid">
+            <label className="field">
+              <span>correct answer</span>
+              <input
+                value={correctAnswer}
+                onChange={(event) => setCorrectAnswer(event.target.value)}
+                placeholder="optional"
+              />
+            </label>
+            <label className="field">
+              <span>answer aliases</span>
+              <textarea
+                value={aliases}
+                onChange={(event) => setAliases(event.target.value)}
+                placeholder="one per line"
+                rows={3}
+              />
+            </label>
+          </div>
+          <div className="option-row">
+            <label><input type="checkbox" checked={dryRun} onChange={(event) => setDryRun(event.target.checked)} /> dry run</label>
+            <label><input type="checkbox" checked={retrieve} onChange={(event) => setRetrieve(event.target.checked)} /> PubMed retrieval</label>
+            <label><input type="checkbox" checked={judge} onChange={(event) => setJudge(event.target.checked)} disabled={!correctAnswer.trim()} /> judge</label>
+          </div>
+          <div className="field-grid compact">
+            <label className="field">
+              <span>queries</span>
+              <input type="number" min={1} max={8} value={maxQueries} onChange={(event) => setMaxQueries(Number(event.target.value))} />
+            </label>
+            <label className="field">
+              <span>articles/query</span>
+              <input type="number" min={1} max={10} value={articlesPerQuery} onChange={(event) => setArticlesPerQuery(Number(event.target.value))} />
+            </label>
+            <label className="field">
+              <span>rounds</span>
+              <input type="number" min={1} max={4} value={maxRounds} onChange={(event) => setMaxRounds(Number(event.target.value))} />
+            </label>
+          </div>
+          <label className="field">
+            <span>model</span>
+            <input value={model} onChange={(event) => setModel(event.target.value)} placeholder="optional; uses environment default" />
+          </label>
+          {error && <div className="error-text">{error}</div>}
+        </div>
+        <div className="new-case-actions">
+          <button type="button" className="btn" onClick={onClose}>Cancel</button>
+          <button type="submit" className="btn primary" disabled={!canSubmit}>
+            {submitting ? "Starting..." : "Start case"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

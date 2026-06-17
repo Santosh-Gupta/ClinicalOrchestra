@@ -40,6 +40,16 @@ def user_generated_dir() -> Path:
     return (_REPO_ROOT / "viewer" / "user_generated").resolve()
 
 
+@lru_cache(maxsize=1)
+def user_generated_runs_dir() -> Path:
+    """Directory holding viewer-created run outputs."""
+
+    env = os.environ.get("CLINICAL_VIEWER_USER_RUNS")
+    if env:
+        return Path(env).expanduser().resolve()
+    return (user_generated_dir() / "runs").resolve()
+
+
 def cors_origins() -> list[str]:
     """Allowed origins for the dev frontend.
 

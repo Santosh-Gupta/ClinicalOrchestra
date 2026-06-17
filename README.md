@@ -33,6 +33,9 @@ What makes it useful:
 
 - **Watch the run unfold.** Replay a finished run event-by-event, or stream live
   events while a run is active.
+- **Try a brand-new case.** Use the viewer's **New** button to enter a
+  de-identified case, optionally provide the correct answer, and create a
+  viewer-generated run under `viewer/user_generated/`.
 - **Inspect every layer.** Expand cards for search queries, tool calls,
   evidence, prompt packets, model responses, answer JSON, judge output, and raw
   event payloads.
