@@ -697,7 +697,7 @@ function NewCaseDialog({
   const [maxRounds, setMaxRounds] = useState(1);
   const [model, setModel] = useState("");
 
-  const canSubmit = title.trim().length > 0 && prompt.trim().length >= 20 && !submitting;
+  const canSubmit = prompt.trim().length >= 20 && !submitting;
   const retrievalEnabled = allowRetrieval;
   const modelEnabled = allowModelRuns;
 
@@ -705,7 +705,7 @@ function NewCaseDialog({
     event.preventDefault();
     if (!canSubmit) return;
     onSubmit({
-      title: title.trim(),
+      title: title.trim() || "Untitled case",
       prompt: prompt.trim(),
       correct_answer: correctAnswer.trim() || null,
       aliases: aliases
@@ -736,8 +736,8 @@ function NewCaseDialog({
         </div>
         <div className="new-case-body">
           <label className="field">
-            <span>title</span>
-            <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Acute neurologic syndrome" />
+            <span>title optional</span>
+            <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="leave blank for demo" />
           </label>
           <label className="field">
             <span>case text</span>
@@ -771,6 +771,11 @@ function NewCaseDialog({
             <label><input type="checkbox" checked={dryRun || !modelEnabled} onChange={(event) => setDryRun(event.target.checked)} disabled={!modelEnabled} /> dry run</label>
             <label><input type="checkbox" checked={retrieve && retrievalEnabled} onChange={(event) => setRetrieve(event.target.checked)} disabled={!retrievalEnabled} /> PubMed retrieval</label>
             <label><input type="checkbox" checked={judge && modelEnabled} onChange={(event) => setJudge(event.target.checked)} disabled={!modelEnabled || !correctAnswer.trim()} /> judge</label>
+          </div>
+          <div className="option-help">
+            <div><strong>Dry run</strong> builds the trace artifacts without calling a model API.</div>
+            <div><strong>PubMed retrieval</strong> lets the backend search PubMed for evidence.</div>
+            <div><strong>Judge</strong> scores the model answer against the correct answer when one is provided.</div>
           </div>
           {(!retrievalEnabled || !modelEnabled) && (
             <div className="demo-note">

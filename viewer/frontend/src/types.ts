@@ -89,7 +89,7 @@ export interface SaveTraceResponse {
 }
 
 export interface NewCaseRequest {
-  title: string;
+  title?: string | null;
   prompt: string;
   correct_answer?: string | null;
   aliases?: string[];

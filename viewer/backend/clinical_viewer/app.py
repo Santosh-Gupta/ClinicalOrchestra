@@ -64,7 +64,7 @@ _STATIC_DIR = _REPO_ROOT / "viewer" / "frontend" / "dist"
 
 
 class NewCaseRequest(BaseModel):
-    title: str = Field(min_length=1, max_length=240)
+    title: str | None = Field(default=None, max_length=240)
     prompt: str = Field(min_length=20, max_length=50000)
     correct_answer: str | None = Field(default=None, max_length=1000)
     aliases: list[str] = Field(default_factory=list, max_length=20)
@@ -139,7 +139,8 @@ async def create_new_case(payload: NewCaseRequest) -> NewCaseResponse:
         raise HTTPException(status_code=403, detail="judge calls are disabled for this demo")
 
     submitted_at = datetime.now(UTC).replace(microsecond=0)
-    case_id = _safe_case_slug(payload.case_id or payload.title, prefix="user_case")
+    display_title = _display_title(payload.title, payload.prompt)
+    case_id = _safe_case_slug(payload.case_id or display_title, prefix="user_case")
     run_id = _safe_run_slug(payload.run_id or f"user_generated_{submitted_at.strftime('%Y%m%d_%H%M%S')}")
     case_root = user_generated_dir() / "cases" / run_id
     run_root = user_generated_runs_dir()
@@ -156,7 +157,7 @@ async def create_new_case(payload: NewCaseRequest) -> NewCaseResponse:
     }
     manifest_row = {
         "case_id": case_id,
-        "title": payload.title.strip(),
+        "title": display_title,
         "challenge_prompt": payload.prompt.strip(),
         "answer_key": answer_key,
         "source": "viewer_user_generated",
@@ -472,6 +473,15 @@ def _safe_case_slug(value: str, *, prefix: str) -> str:
     if not slug or slug == "trace":
         slug = prefix
     return slug
+
+
+def _display_title(title: str | None, prompt: str) -> str:
+    if title and title.strip():
+        return title.strip()
+    words = re.findall(r"[A-Za-z0-9-]+", prompt.strip())
+    if not words:
+        return "Untitled case"
+    return " ".join(words[:8])[:120] or "Untitled case"
 
 
 def _safe_run_slug(value: str) -> str:
