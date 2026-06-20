@@ -137,6 +137,14 @@ export default function App() {
       }),
     [shown, traceFilter, traceSearch],
   );
+  const retrievalEvents = useMemo(
+    () => visibleEvents.filter(isRetrievalEvent),
+    [visibleEvents],
+  );
+  const nonRetrievalEvents = useMemo(
+    () => visibleEvents.filter((event) => !isRetrievalEvent(event)),
+    [visibleEvents],
+  );
 
   const eventCounts = useMemo(() => traceFilterCounts(shown), [shown]);
   const traceSummary = useMemo(() => summarizeTrace(shown), [shown]);
@@ -233,130 +241,144 @@ export default function App() {
     <div
       className={[
         "app",
+        IS_PUBLIC_EDITION ? "public-app" : "",
         !runsPanelOpen ? "runs-collapsed" : "",
         !casesPanelOpen ? "cases-collapsed" : "",
       ]
         .filter(Boolean)
         .join(" ")}
     >
-      {/* Rail: runs */}
-      <div className="rail" aria-hidden={!runsPanelOpen}>
-        <div className="rail-head">
-          <div className="eyebrow">ClinicalHarness</div>
-          <div className="title-row">
-            <div className="title">Runs</div>
-            <div className="header-actions">
-              <button className="icon-btn" onClick={refreshRuns} title="Refresh runs">
-                ↻
-              </button>
-              <button
-                className="panel-action new-case-action"
-                onClick={() => setNewCaseOpen(true)}
-                title="Create a new viewer-generated case"
-              >
-                New
-              </button>
-              <button
-                className="panel-action"
-                onClick={() => setRunsPanelOpen(false)}
-                title="Hide runs panel"
-              >
-                Hide
-              </button>
+      {!IS_PUBLIC_EDITION && (
+        <>
+          {/* Rail: runs */}
+          <div className="rail" aria-hidden={!runsPanelOpen}>
+            <div className="rail-head">
+              <div className="eyebrow">ClinicalHarness</div>
+              <div className="title-row">
+                <div className="title">Runs</div>
+                <div className="header-actions">
+                  <button className="icon-btn" onClick={refreshRuns} title="Refresh runs">
+                    ↻
+                  </button>
+                  <button
+                    className="panel-action new-case-action"
+                    onClick={() => setNewCaseOpen(true)}
+                    title="Create a new viewer-generated case"
+                  >
+                    New
+                  </button>
+                  <button
+                    className="panel-action"
+                    onClick={() => setRunsPanelOpen(false)}
+                    title="Hide runs panel"
+                  >
+                    Hide
+                  </button>
+                </div>
+              </div>
             </div>
+            {runs.map((r) => (
+              <button
+                key={r.run_id}
+                className={`row ${activeRun === r.run_id ? "active" : ""}`}
+                onClick={() => setActiveRun(r.run_id)}
+              >
+                <div className="row-title">{r.run_id}</div>
+                <div className="row-meta">
+                  <span>{r.case_count} cases</span>
+                  {r.live_case_count > 0 && <Badge status="running" label={`${r.live_case_count} live`} />}
+                  {r.incomplete_case_count > 0 && (
+                    <Badge status="info" label={`${r.incomplete_case_count} growing`} />
+                  )}
+                  {r.native_event_case_count > 0 && (
+                    <span>{r.native_event_case_count} traces</span>
+                  )}
+                  {r.pass_count != null && (
+                    <>
+                      <span style={{ color: "var(--pass)" }}>{r.pass_count}✓</span>
+                      <span style={{ color: "var(--fail)" }}>{r.fail_count}✗</span>
+                    </>
+                  )}
+                </div>
+              </button>
+            ))}
           </div>
-        </div>
-        {runs.map((r) => (
-          <button
-            key={r.run_id}
-            className={`row ${activeRun === r.run_id ? "active" : ""}`}
-            onClick={() => setActiveRun(r.run_id)}
-          >
-            <div className="row-title">{r.run_id}</div>
-            <div className="row-meta">
-              <span>{r.case_count} cases</span>
-              {r.live_case_count > 0 && <Badge status="running" label={`${r.live_case_count} live`} />}
-              {r.incomplete_case_count > 0 && (
-                <Badge status="info" label={`${r.incomplete_case_count} growing`} />
-              )}
-              {r.native_event_case_count > 0 && (
-                <span>{r.native_event_case_count} traces</span>
-              )}
-              {r.pass_count != null && (
-                <>
-                  <span style={{ color: "var(--pass)" }}>{r.pass_count}✓</span>
-                  <span style={{ color: "var(--fail)" }}>{r.fail_count}✗</span>
-                </>
-              )}
-            </div>
-          </button>
-        ))}
-      </div>
 
-      {/* Column: cases */}
-      <div className="column" aria-hidden={!casesPanelOpen}>
-        <div className="column-head">
-          <div className="eyebrow">{activeRun ?? "select a run"}</div>
-          <div className="title-row">
-            <div className="title">Cases</div>
-            <div className="header-actions">
-              {activeRun && (
-                <button className="icon-btn" onClick={() => refreshCases()} title="Refresh cases">
-                  ↻
-                </button>
+          {/* Column: cases */}
+          <div className="column" aria-hidden={!casesPanelOpen}>
+            <div className="column-head">
+              <div className="eyebrow">{activeRun ?? "select a run"}</div>
+              <div className="title-row">
+                <div className="title">Cases</div>
+                <div className="header-actions">
+                  {activeRun && (
+                    <button className="icon-btn" onClick={() => refreshCases()} title="Refresh cases">
+                      ↻
+                    </button>
+                  )}
+                  <button
+                    className="panel-action"
+                    onClick={() => setCasesPanelOpen(false)}
+                    title="Hide cases panel"
+                  >
+                    Hide
+                  </button>
+                </div>
+              </div>
+              {cases.length > 0 && (
+                <input
+                  className="search"
+                  placeholder="filter cases…"
+                  value={caseFilter}
+                  onChange={(e) => setCaseFilter(e.target.value)}
+                />
               )}
+            </div>
+            {filteredCases.map((c) => (
               <button
-                className="panel-action"
-                onClick={() => setCasesPanelOpen(false)}
-                title="Hide cases panel"
+                key={c.case_id}
+                className={`row ${activeCase === c.case_id ? "active" : ""}`}
+                onClick={() => setActiveCase(c.case_id)}
               >
-                Hide
+                <div className="row-title">{c.case_id}</div>
+                <div className="row-meta">
+                  {c.is_live && <Badge status="running" label="live" />}
+                  {!c.is_live && c.is_complete === false && <Badge status="info" label="growing" />}
+                  {c.has_native_events && <Badge status="ok" label={`${c.event_count ?? "?"} events`} />}
+                  {c.score && <Badge status={c.score === "pass" ? "pass" : "fail"} />}
+                  {c.expected_diagnosis && <span>{truncate(c.expected_diagnosis, 48)}</span>}
+                </div>
               </button>
-            </div>
+            ))}
+            {activeRun && cases.length === 0 && <div className="empty">no cases found</div>}
+            {newCaseState.result && (
+              <div className="rail-note">
+                started <code>{newCaseState.result.case_id}</code>
+              </div>
+            )}
           </div>
-          {cases.length > 0 && (
-            <input
-              className="search"
-              placeholder="filter cases…"
-              value={caseFilter}
-              onChange={(e) => setCaseFilter(e.target.value)}
-            />
-          )}
-        </div>
-        {filteredCases.map((c) => (
-          <button
-            key={c.case_id}
-            className={`row ${activeCase === c.case_id ? "active" : ""}`}
-            onClick={() => setActiveCase(c.case_id)}
-          >
-            <div className="row-title">{c.case_id}</div>
-            <div className="row-meta">
-              {c.is_live && <Badge status="running" label="live" />}
-              {!c.is_live && c.is_complete === false && <Badge status="info" label="growing" />}
-              {c.has_native_events && <Badge status="ok" label={`${c.event_count ?? "?"} events`} />}
-              {c.score && <Badge status={c.score === "pass" ? "pass" : "fail"} />}
-              {c.expected_diagnosis && <span>{truncate(c.expected_diagnosis, 48)}</span>}
-            </div>
-          </button>
-        ))}
-        {activeRun && cases.length === 0 && <div className="empty">no cases found</div>}
-        {newCaseState.result && (
-          <div className="rail-note">
-            started <code>{newCaseState.result.case_id}</code>
-          </div>
-        )}
-      </div>
+        </>
+      )}
 
       {/* Main: timeline */}
       <div className="main">
         <div className="main-head">
           <div className="main-title-row">
             <div>
-              <div className="eyebrow">trace</div>
-              <div className="title">{activeCase ?? "—"}</div>
+              <div className="eyebrow">{IS_PUBLIC_EDITION ? "ClinicalOrchestra" : "trace"}</div>
+              <div className="title">{activeCase ?? (IS_PUBLIC_EDITION ? "Public demo" : "—")}</div>
             </div>
             <div className="panel-controls" aria-label="Panel visibility">
-              {!runsPanelOpen && (
+              {IS_PUBLIC_EDITION && (
+                <button
+                  className="panel-action new-case-action main-new-case"
+                  onClick={() => setNewCaseOpen(true)}
+                  title="Start a new demo case"
+                >
+                  New Case
+                </button>
+              )}
+              {!IS_PUBLIC_EDITION && !runsPanelOpen && (
                 <button
                   className="panel-toggle"
                   onClick={() => setRunsPanelOpen(true)}
@@ -365,7 +387,7 @@ export default function App() {
                   Show Runs
                 </button>
               )}
-              {!casesPanelOpen && (
+              {!IS_PUBLIC_EDITION && !casesPanelOpen && (
                 <button
                   className="panel-toggle"
                   onClick={() => setCasesPanelOpen(true)}
@@ -440,7 +462,23 @@ export default function App() {
           )}
         </div>
 
-        {!activeCase && <div className="empty">Select a run, then a case to watch the harness work.</div>}
+        {!activeCase && (
+          <div className="empty public-start">
+            {IS_PUBLIC_EDITION ? (
+              <>
+                <button
+                  className="panel-action new-case-action main-new-case"
+                  onClick={() => setNewCaseOpen(true)}
+                >
+                  New Case
+                </button>
+                <div>Start with a clinical vignette and watch retrieval, reasoning, and diagnosis unfold.</div>
+              </>
+            ) : (
+              "Select a run, then a case to watch the harness work."
+            )}
+          </div>
+        )}
 
         {timeline && (
           <div className="timeline">
@@ -531,14 +569,36 @@ export default function App() {
               )}
               {saveState.error && <div className="trace-save error-text">{saveState.error}</div>}
             </div>
-            {visibleEvents.map((e) => (
-              <EventCard
-                key={e.id}
-                event={e}
-                expandVersion={expandVersion}
-                collapseVersion={collapseVersion}
-              />
-            ))}
+            {IS_PUBLIC_EDITION ? (
+              <div className="trace-columns">
+                <TraceLane
+                  title="Retrieval"
+                  count={retrievalEvents.length}
+                  events={retrievalEvents}
+                  expandVersion={expandVersion}
+                  collapseVersion={collapseVersion}
+                  emptyText="retrieval steps will appear here"
+                />
+                <TraceLane
+                  title="Reasoning"
+                  count={nonRetrievalEvents.length}
+                  events={nonRetrievalEvents}
+                  expandVersion={expandVersion}
+                  collapseVersion={collapseVersion}
+                  emptyText="case reasoning will appear here"
+                  workingStatus={isWorking ? workingStatus : null}
+                />
+              </div>
+            ) : (
+              visibleEvents.map((e) => (
+                <EventCard
+                  key={e.id}
+                  event={e}
+                  expandVersion={expandVersion}
+                  collapseVersion={collapseVersion}
+                />
+              ))
+            )}
             {shown.length > 0 && visibleEvents.length === 0 && (
               <div className="empty">no events match this trace filter</div>
             )}
@@ -579,6 +639,56 @@ const TRACE_FILTERS: { id: TraceFilter; label: string }[] = [
   { id: "errors", label: "Errors" },
 ];
 
+function TraceLane({
+  title,
+  count,
+  events,
+  expandVersion,
+  collapseVersion,
+  emptyText,
+  workingStatus,
+}: {
+  title: string;
+  count: number;
+  events: TraceEvent[];
+  expandVersion: number;
+  collapseVersion: number;
+  emptyText: string;
+  workingStatus?: string | null;
+}) {
+  return (
+    <section className="trace-lane" aria-label={`${title} trace`}>
+      <div className="trace-lane-head">
+        <div>
+          <div className="eyebrow">thread</div>
+          <div className="trace-lane-title">{title}</div>
+        </div>
+        <span>{count}</span>
+      </div>
+      <div className="trace-lane-events">
+        {events.map((event) => (
+          <EventCard
+            key={event.id}
+            event={event}
+            expandVersion={expandVersion}
+            collapseVersion={collapseVersion}
+          />
+        ))}
+        {events.length === 0 && <div className="lane-empty">{emptyText}</div>}
+        {workingStatus && (
+          <div className="working-banner lane-working" role="status" aria-live="polite">
+            <span className="working-pulse" aria-hidden="true" />
+            <div>
+              <div className="working-title">Working<span className="working-dots" /></div>
+              <div className="working-text">{workingStatus}</div>
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function matchesTraceFilter(event: TraceEvent, filter: TraceFilter): boolean {
   switch (filter) {
     case "all":
@@ -605,6 +715,10 @@ function matchesTraceFilter(event: TraceEvent, filter: TraceFilter): boolean {
     case "errors":
       return event.status === "error" || event.status === "warn";
   }
+}
+
+function isRetrievalEvent(event: TraceEvent): boolean {
+  return matchesTraceFilter(event, "retrieval");
 }
 
 function traceFilterCounts(events: TraceEvent[]): Record<TraceFilter, number> {
