@@ -83,7 +83,7 @@ export default function App() {
 
   useEffect(() => {
     if (!activeRun) return;
-    const needsRefresh = cases.some((c) => c.is_live || c.is_complete === false);
+    const needsRefresh = cases.length === 0 || cases.some((c) => c.is_live || c.is_complete === false);
     if (!needsRefresh) return;
     const id = window.setInterval(() => {
       refreshRuns();
@@ -139,6 +139,11 @@ export default function App() {
 
   const eventCounts = useMemo(() => traceFilterCounts(shown), [shown]);
   const traceSummary = useMemo(() => summarizeTrace(shown), [shown]);
+  const isWorking = Boolean(timeline && (streaming || activeCaseSummary?.is_live || activeCaseSummary?.is_complete === false));
+  const workingStatus = useMemo(
+    () => (timeline ? workingStatusText(shown.at(-1) ?? null, { streaming, isLive: Boolean(activeCaseSummary?.is_live) }) : null),
+    [timeline, shown, streaming, activeCaseSummary?.is_live],
+  );
 
   function stopStream() {
     streamCleanupRef.current?.();
@@ -440,6 +445,15 @@ export default function App() {
                 {activeCaseSummary?.is_complete === false && <Badge status="info" label="growing" />}
                 {timeline.trace_notice && <span>{timeline.trace_notice}</span>}
               </div>
+              {isWorking && workingStatus && (
+                <div className="working-banner" role="status" aria-live="polite">
+                  <span className="working-pulse" aria-hidden="true" />
+                  <div>
+                    <div className="working-title">Working<span className="working-dots" /></div>
+                    <div className="working-text">{workingStatus}</div>
+                  </div>
+                </div>
+              )}
               {timeline.artifacts.length > 0 && (
                 <div className="artifact-links">
                   {timeline.artifacts.map((artifact) => (
@@ -614,6 +628,48 @@ function bySeq(a: TraceEvent, b: TraceEvent): number {
 
 function eventSearchText(event: TraceEvent): string {
   return `${event.title} ${event.summary ?? ""} ${event.actor} ${event.type} ${JSON.stringify(event.payload)}`.toLowerCase();
+}
+
+function workingStatusText(event: TraceEvent | null, opts: { streaming: boolean; isLive: boolean }): string {
+  if (!event) {
+    return opts.isLive ? "Waiting for the first trace event from the running case." : "Preparing the trace.";
+  }
+  const round = event.round != null ? ` round ${event.round}` : "";
+  switch (event.type) {
+    case "case_started":
+      return "Reading the case and setting up the diagnostic run.";
+    case "problem_representation":
+      return "Building the problem representation from the case text.";
+    case "round_started":
+      return `Starting retrieval${round}.`;
+    case "query_generated":
+      return `Planning a literature query${round}: ${event.title}`;
+    case "tool_call":
+    case "search_executed":
+      return `Using a retrieval tool${round}: ${event.summary ?? event.title}`;
+    case "evidence_retrieved":
+      return `Reviewing retrieved evidence${round}: ${event.title}`;
+    case "synthesis":
+      return `Synthesizing evidence and discriminators${round}.`;
+    case "round_completed":
+      return `Finished retrieval${round}; deciding whether more information is needed.`;
+    case "prompt_built":
+      return "Assembling the final injected prompt packet.";
+    case "model_call":
+      return `Calling the model: ${event.summary ?? event.title}`;
+    case "model_response":
+      return "Parsing the model response and usage metadata.";
+    case "answer":
+      return "Preparing the final diagnosis answer.";
+    case "judge":
+      return "Comparing the answer against the expected diagnosis.";
+    case "error":
+      return `Run reported an error: ${event.summary ?? event.title}`;
+    case "case_completed":
+      return "Finalizing the run.";
+    default:
+      return opts.streaming ? `Streaming ${event.actor} activity: ${event.title}` : `Latest step: ${event.title}`;
+  }
 }
 
 function Metric({ label, value }: { label: string; value: string | number }) {
