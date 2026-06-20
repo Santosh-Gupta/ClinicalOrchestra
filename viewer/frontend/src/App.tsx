@@ -824,19 +824,27 @@ function NewCaseDialog({
             </label>
           </div>
           <div className="option-row">
-            <label><input type="checkbox" checked={dryRun || !modelEnabled} onChange={(event) => setDryRun(event.target.checked)} disabled={!modelEnabled} /> dry run</label>
             <label><input type="checkbox" checked={retrieve && retrievalEnabled} onChange={(event) => setRetrieve(event.target.checked)} disabled={!retrievalEnabled} /> PubMed retrieval</label>
-            <label><input type="checkbox" checked={judge && modelEnabled} onChange={(event) => setJudge(event.target.checked)} disabled={!modelEnabled || !correctAnswer.trim()} /> judge</label>
+            {modelEnabled && (
+              <>
+                <label><input type="checkbox" checked={dryRun} onChange={(event) => setDryRun(event.target.checked)} /> dry run</label>
+                <label><input type="checkbox" checked={judge} onChange={(event) => setJudge(event.target.checked)} disabled={!correctAnswer.trim()} /> judge</label>
+              </>
+            )}
           </div>
           <div className="option-help">
-            <div><strong>Dry run</strong> builds the trace artifacts without calling a model API.</div>
             <div><strong>PubMed retrieval</strong> lets the backend search PubMed for evidence.</div>
-            <div><strong>Judge</strong> scores the model answer against the correct answer when one is provided.</div>
+            {modelEnabled && (
+              <>
+                <div><strong>Dry run</strong> builds the trace artifacts without calling a model API.</div>
+                <div><strong>Judge</strong> scores the model answer against the correct answer when one is provided.</div>
+              </>
+            )}
           </div>
           {(!retrievalEnabled || !modelEnabled) && (
             <div className="demo-note">
               This demo is configured for safe public use. {!retrievalEnabled && "PubMed retrieval is disabled. "}
-              {!modelEnabled && "Model and judge calls are disabled."}
+              {!modelEnabled && "Model scoring controls are hidden in the public UI."}
             </div>
           )}
           <div className="field-grid compact">
@@ -853,15 +861,16 @@ function NewCaseDialog({
               <input type="number" min={1} max={4} value={maxRounds} onChange={(event) => setMaxRounds(Number(event.target.value))} />
             </label>
           </div>
-          <label className="field">
-            <span>model</span>
-            <input
-              value={model}
-              onChange={(event) => setModel(event.target.value)}
-              placeholder="optional; uses environment default"
-              disabled={!modelEnabled}
-            />
-          </label>
+          {modelEnabled && (
+            <label className="field">
+              <span>model</span>
+              <input
+                value={model}
+                onChange={(event) => setModel(event.target.value)}
+                placeholder="optional; uses environment default"
+              />
+            </label>
+          )}
           {error && <div className="error-text">{error}</div>}
         </div>
         <div className="new-case-actions">
