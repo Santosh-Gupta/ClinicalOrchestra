@@ -770,9 +770,9 @@ function NewCaseDialog({
         .split("\n")
         .map((alias) => alias.trim())
         .filter(Boolean),
-      dry_run: modelEnabled ? dryRun : true,
+      dry_run: IS_PUBLIC_EDITION ? false : modelEnabled ? dryRun : true,
       retrieve: retrievalEnabled ? (IS_PUBLIC_EDITION ? true : retrieve) : false,
-      judge: modelEnabled && judge && Boolean(correctAnswer.trim()),
+      judge: IS_PUBLIC_EDITION ? Boolean(correctAnswer.trim()) : modelEnabled && judge && Boolean(correctAnswer.trim()),
       max_queries: maxQueries,
       articles_per_query: articlesPerQuery,
       max_rounds: maxRounds,
