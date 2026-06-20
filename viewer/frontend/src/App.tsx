@@ -754,7 +754,7 @@ function NewCaseDialog({
               <input
                 value={correctAnswer}
                 onChange={(event) => setCorrectAnswer(event.target.value)}
-                placeholder="optional"
+                placeholder="optional, for benchmarking the harness"
               />
             </label>
             <label className="field">
