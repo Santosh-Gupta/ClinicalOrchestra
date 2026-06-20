@@ -208,6 +208,17 @@ The repo includes a production Docker path for hosting the viewer as one web
 service: the Docker build compiles `viewer/frontend`, installs the harness plus
 `viewer/backend`, and serves the React app and `/api/*` from FastAPI.
 
+The hosted Docker build sets `VITE_VIEWER_EDITION=public`. Public edition keeps
+the new-case form focused on entering a case and optional PubMed retrieval; it
+hides model, judge, and dry-run controls even if backend model env vars exist.
+Local frontend development defaults to the advanced edition. To preview either
+edition locally:
+
+```bash
+VITE_VIEWER_EDITION=public npm run build
+VITE_VIEWER_EDITION=advanced npm run dev
+```
+
 ### Render
 
 1. Push this repo to GitHub.

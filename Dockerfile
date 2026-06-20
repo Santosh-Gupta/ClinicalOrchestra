@@ -3,6 +3,7 @@
 FROM node:20-bookworm-slim AS frontend
 
 WORKDIR /app/viewer/frontend
+ENV VITE_VIEWER_EDITION=public
 COPY viewer/frontend/package*.json ./
 RUN npm ci
 COPY viewer/frontend ./

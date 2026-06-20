@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { api, streamTimeline } from "./api";
 import { EventCard } from "./components/EventCard";
 import { Badge } from "./components/ui";
+import { IS_PUBLIC_EDITION } from "./edition";
 import type {
   ArtifactContent,
   CaseArtifact,
@@ -755,7 +756,8 @@ function NewCaseDialog({
 
   const canSubmit = prompt.trim().length >= 20 && !submitting;
   const retrievalEnabled = allowRetrieval;
-  const modelEnabled = allowModelRuns;
+  const showAdvancedControls = !IS_PUBLIC_EDITION;
+  const modelEnabled = allowModelRuns && showAdvancedControls;
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -844,7 +846,7 @@ function NewCaseDialog({
           {(!retrievalEnabled || !modelEnabled) && (
             <div className="demo-note">
               This demo is configured for safe public use. {!retrievalEnabled && "PubMed retrieval is disabled. "}
-              {!modelEnabled && "Model scoring controls are hidden in the public UI."}
+              {IS_PUBLIC_EDITION ? "Model and judge controls are part of the advanced UI." : !modelEnabled && "Model scoring controls are hidden."}
             </div>
           )}
           <div className="field-grid compact">
