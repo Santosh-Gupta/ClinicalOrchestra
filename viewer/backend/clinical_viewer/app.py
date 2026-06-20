@@ -73,9 +73,9 @@ class NewCaseRequest(BaseModel):
     dry_run: bool = True
     retrieve: bool = False
     judge: bool = False
-    max_queries: int = Field(default=2, ge=1, le=8)
-    articles_per_query: int = Field(default=3, ge=1, le=10)
-    max_rounds: int = Field(default=1, ge=1, le=4)
+    max_queries: int = Field(default=8, ge=1, le=8)
+    articles_per_query: int = Field(default=8, ge=1, le=10)
+    max_rounds: int = Field(default=5, ge=1, le=5)
     model: str | None = Field(default=None, max_length=120)
 
 

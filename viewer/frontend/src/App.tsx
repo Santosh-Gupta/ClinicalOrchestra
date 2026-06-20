@@ -747,11 +747,11 @@ function NewCaseDialog({
   const [correctAnswer, setCorrectAnswer] = useState("");
   const [aliases, setAliases] = useState("");
   const [dryRun, setDryRun] = useState(true);
-  const [retrieve, setRetrieve] = useState(false);
+  const [retrieve, setRetrieve] = useState(IS_PUBLIC_EDITION);
   const [judge, setJudge] = useState(false);
-  const [maxQueries, setMaxQueries] = useState(2);
-  const [articlesPerQuery, setArticlesPerQuery] = useState(3);
-  const [maxRounds, setMaxRounds] = useState(1);
+  const [maxQueries, setMaxQueries] = useState(8);
+  const [articlesPerQuery, setArticlesPerQuery] = useState(8);
+  const [maxRounds, setMaxRounds] = useState(5);
   const [model, setModel] = useState("");
 
   const canSubmit = prompt.trim().length >= 20 && !submitting;
@@ -771,7 +771,7 @@ function NewCaseDialog({
         .map((alias) => alias.trim())
         .filter(Boolean),
       dry_run: modelEnabled ? dryRun : true,
-      retrieve: retrievalEnabled ? retrieve : false,
+      retrieve: retrievalEnabled ? (IS_PUBLIC_EDITION ? true : retrieve) : false,
       judge: modelEnabled && judge && Boolean(correctAnswer.trim()),
       max_queries: maxQueries,
       articles_per_query: articlesPerQuery,
@@ -806,7 +806,7 @@ function NewCaseDialog({
               rows={8}
             />
           </label>
-          <div className="field-grid">
+          <div className={IS_PUBLIC_EDITION ? "" : "field-grid"}>
             <label className="field">
               <span>correct answer</span>
               <input
@@ -815,27 +815,31 @@ function NewCaseDialog({
                 placeholder="optional, for benchmarking the harness"
               />
             </label>
-            <label className="field">
-              <span>answer aliases</span>
-              <textarea
-                value={aliases}
-                onChange={(event) => setAliases(event.target.value)}
-                placeholder="one per line"
-                rows={3}
-              />
-            </label>
+            {!IS_PUBLIC_EDITION && (
+              <label className="field">
+                <span>answer aliases</span>
+                <textarea
+                  value={aliases}
+                  onChange={(event) => setAliases(event.target.value)}
+                  placeholder="one per line"
+                  rows={3}
+                />
+              </label>
+            )}
           </div>
-          <div className="option-row">
-            <label><input type="checkbox" checked={retrieve && retrievalEnabled} onChange={(event) => setRetrieve(event.target.checked)} disabled={!retrievalEnabled} /> PubMed retrieval</label>
+          {!IS_PUBLIC_EDITION && (
+            <div className="option-row">
+              <label><input type="checkbox" checked={retrieve && retrievalEnabled} onChange={(event) => setRetrieve(event.target.checked)} disabled={!retrievalEnabled} /> PubMed retrieval</label>
             {modelEnabled && (
               <>
                 <label><input type="checkbox" checked={dryRun} onChange={(event) => setDryRun(event.target.checked)} /> dry run</label>
                 <label><input type="checkbox" checked={judge} onChange={(event) => setJudge(event.target.checked)} disabled={!correctAnswer.trim()} /> judge</label>
               </>
             )}
-          </div>
+            </div>
+          )}
           <div className="option-help">
-            <div><strong>PubMed retrieval</strong> lets the backend search PubMed for evidence.</div>
+            <div><strong>PubMed retrieval</strong> {IS_PUBLIC_EDITION ? "will run automatically to search for evidence." : "lets the backend search PubMed for evidence."}</div>
             {modelEnabled && (
               <>
                 <div><strong>Dry run</strong> builds the trace artifacts without calling a model API.</div>
@@ -843,7 +847,7 @@ function NewCaseDialog({
               </>
             )}
           </div>
-          {(!retrievalEnabled || !modelEnabled) && (
+          {!IS_PUBLIC_EDITION && (!retrievalEnabled || !modelEnabled) && (
             <div className="demo-note">
               This demo is configured for safe public use. {!retrievalEnabled && "PubMed retrieval is disabled. "}
               {IS_PUBLIC_EDITION ? "Model and judge controls are part of the advanced UI." : !modelEnabled && "Model scoring controls are hidden."}
@@ -860,7 +864,7 @@ function NewCaseDialog({
             </label>
             <label className="field">
               <span>rounds</span>
-              <input type="number" min={1} max={4} value={maxRounds} onChange={(event) => setMaxRounds(Number(event.target.value))} />
+              <input type="number" min={1} max={5} value={maxRounds} onChange={(event) => setMaxRounds(Number(event.target.value))} />
             </label>
           </div>
           {modelEnabled && (
