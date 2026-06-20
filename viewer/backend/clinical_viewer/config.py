@@ -50,6 +50,18 @@ def user_generated_runs_dir() -> Path:
     return (user_generated_dir() / "runs").resolve()
 
 
+def allow_retrieval_runs() -> bool:
+    """Whether public viewer-submitted cases may call external retrieval APIs."""
+
+    return _env_bool("CLINICAL_VIEWER_ALLOW_RETRIEVAL", default=False)
+
+
+def allow_model_runs() -> bool:
+    """Whether public viewer-submitted cases may call model/judge APIs."""
+
+    return _env_bool("CLINICAL_VIEWER_ALLOW_MODEL_RUNS", default=False)
+
+
 def cors_origins() -> list[str]:
     """Allowed origins for the dev frontend.
 
@@ -61,3 +73,10 @@ def cors_origins() -> list[str]:
     if env:
         return [origin.strip() for origin in env.split(",") if origin.strip()]
     return ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+
+def _env_bool(name: str, *, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}

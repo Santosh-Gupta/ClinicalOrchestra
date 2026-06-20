@@ -53,6 +53,10 @@ What makes it useful:
 
 Open the full guide at [viewer/README.md](viewer/README.md).
 
+For a public demo, deploy the included root `Dockerfile` or Render Blueprint
+(`render.yaml`). The container serves the viewer UI and API from one FastAPI
+service and defaults to dry-run-only public case submissions.
+
 ## Quick Start
 
 Install the Python package:

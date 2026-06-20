@@ -2,6 +2,7 @@ import type {
   ArtifactContent,
   CaseSummary,
   CaseTimeline,
+  HealthResponse,
   NewCaseRequest,
   NewCaseResponse,
   RunSummary,
@@ -26,6 +27,7 @@ async function postJSON<T>(url: string, body?: unknown): Promise<T> {
 }
 
 export const api = {
+  health: () => getJSON<HealthResponse>("/api/health"),
   newCase: (payload: NewCaseRequest) => postJSON<NewCaseResponse>("/api/new-case", payload),
   runs: () => getJSON<RunSummary[]>("/api/runs"),
   cases: (runId: string) =>

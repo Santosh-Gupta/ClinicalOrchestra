@@ -202,6 +202,43 @@ npm run dev                          # http://localhost:5173 (proxies /api → :
 
 Open http://localhost:5173.
 
+## Host a Demo
+
+The repo includes a production Docker path for hosting the viewer as one web
+service: the Docker build compiles `viewer/frontend`, installs the harness plus
+`viewer/backend`, and serves the React app and `/api/*` from FastAPI.
+
+### Render
+
+1. Push this repo to GitHub.
+2. In Render, create a new **Blueprint** from the repo. Render reads
+   `render.yaml` and builds the root `Dockerfile`.
+3. Open the deployed service URL. The root path serves the viewer; `/api/health`
+   reports backend health and demo capabilities.
+
+The default demo is safe for public sharing:
+
+- New cases run in **dry-run** mode by default.
+- `CLINICAL_VIEWER_ALLOW_RETRIEVAL=false` blocks public PubMed calls.
+- `CLINICAL_VIEWER_ALLOW_MODEL_RUNS=false` blocks model and judge calls.
+- Generated cases, trace exports, and run outputs are written under
+  `/data/user_generated` inside the service filesystem.
+
+To enable richer hosted runs later, set these environment variables in Render:
+
+```text
+CLINICAL_VIEWER_ALLOW_RETRIEVAL=true
+CLINICAL_VIEWER_ALLOW_MODEL_RUNS=true
+NCBI_EMAIL=you@example.com
+NCBI_API_KEY=optional_ncbi_key
+OPENAI_API_KEY=...
+OPENAI_BASE_URL=...
+OPENAI_MODEL=...
+```
+
+Only enable model calls on a public demo if you are comfortable with visitors
+using the configured API budget.
+
 ## API surface
 
 | Method | Path | Returns |

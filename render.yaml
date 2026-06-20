@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: clinical-harness-viewer
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    autoDeploy: true
+    healthCheckPath: /api/health
+    envVars:
+      - key: CLINICAL_HARNESS_RUNS
+        value: /data/runs
+      - key: CLINICAL_VIEWER_USER_GENERATED
+        value: /data/user_generated
+      - key: CLINICAL_VIEWER_ALLOW_RETRIEVAL
+        value: "false"
+      - key: CLINICAL_VIEWER_ALLOW_MODEL_RUNS
+        value: "false"

@@ -1,0 +1,22 @@
+.DS_Store
+.git
+.venv
+venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+viewer/.toolchain
+viewer/backend/.venv
+viewer/frontend/node_modules
+viewer/frontend/dist
+viewer/user_generated
+runs
+data/cache
+data/eval
+private
+local_private
+docs/DO NOT COMMIT TO GITHUB
+*.env.local
+*.local.json
+*.private.json

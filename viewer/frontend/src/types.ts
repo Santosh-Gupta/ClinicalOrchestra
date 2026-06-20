@@ -116,6 +116,15 @@ export interface NewCaseResponse {
   judge: boolean;
 }
 
+export interface HealthResponse {
+  status: string;
+  runs_dir: string;
+  runs_dir_exists: boolean;
+  static_ui: boolean;
+  allow_retrieval: boolean;
+  allow_model_runs: boolean;
+}
+
 export interface CaseSummary {
   case_id: string;
   expected_diagnosis: string | null;

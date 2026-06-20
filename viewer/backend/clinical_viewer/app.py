@@ -30,13 +30,21 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import runs as runs_mod
 from .adapters.live import bus
 from .adapters.replay import ARTIFACTS, LEDGER_ARTIFACTS, build_case_timeline
-from .config import cors_origins, runs_dir, user_generated_dir, user_generated_runs_dir
+from .config import (
+    allow_model_runs,
+    allow_retrieval_runs,
+    cors_origins,
+    runs_dir,
+    user_generated_dir,
+    user_generated_runs_dir,
+)
 from .events import CaseSummary, CaseTimeline, Event, RunSummary
 
 app = FastAPI(title="ClinicalHarness Viewer", version="0.1.0")
@@ -52,6 +60,7 @@ app.add_middleware(
 _RAW_ARTIFACTS = {name: suffix for name, _label, suffix in ARTIFACTS}
 _RAW_LEDGER_ARTIFACTS = {name: filename for name, _label, filename in LEDGER_ARTIFACTS}
 _REPO_ROOT = Path(__file__).resolve().parents[3]
+_STATIC_DIR = _REPO_ROOT / "viewer" / "frontend" / "dist"
 
 
 class NewCaseRequest(BaseModel):
@@ -85,7 +94,14 @@ class NewCaseResponse(BaseModel):
 @app.get("/api/health")
 def health() -> dict:
     base = runs_dir()
-    return {"status": "ok", "runs_dir": str(base), "runs_dir_exists": base.is_dir()}
+    return {
+        "status": "ok",
+        "runs_dir": str(base),
+        "runs_dir_exists": base.is_dir(),
+        "static_ui": _STATIC_DIR.is_dir(),
+        "allow_retrieval": allow_retrieval_runs(),
+        "allow_model_runs": allow_model_runs(),
+    }
 
 
 @app.get("/api/runs", response_model=list[RunSummary])
@@ -114,6 +130,13 @@ def get_timeline(run_id: str, case_id: str) -> CaseTimeline:
 @app.post("/api/new-case", response_model=NewCaseResponse)
 async def create_new_case(payload: NewCaseRequest) -> NewCaseResponse:
     """Create a viewer-owned case manifest and run it in the background."""
+
+    if payload.retrieve and not allow_retrieval_runs():
+        raise HTTPException(status_code=403, detail="retrieval is disabled for this demo")
+    if not payload.dry_run and not allow_model_runs():
+        raise HTTPException(status_code=403, detail="model calls are disabled for this demo")
+    if payload.judge and not allow_model_runs():
+        raise HTTPException(status_code=403, detail="judge calls are disabled for this demo")
 
     submitted_at = datetime.now(UTC).replace(microsecond=0)
     case_id = _safe_case_slug(payload.case_id or payload.title, prefix="user_case")
@@ -497,3 +520,19 @@ def _trace_markdown(timeline: CaseTimeline, saved_at: str) -> str:
             ]
         )
     return "\n".join(lines)
+
+
+if (_STATIC_DIR / "assets").is_dir():
+    app.mount("/assets", StaticFiles(directory=_STATIC_DIR / "assets"), name="viewer-assets")
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+def serve_frontend(full_path: str) -> FileResponse:
+    """Serve the production React build when viewer/frontend/dist exists."""
+
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="not found")
+    index = _STATIC_DIR / "index.html"
+    if not index.exists():
+        raise HTTPException(status_code=404, detail="frontend build not found")
+    return FileResponse(index)

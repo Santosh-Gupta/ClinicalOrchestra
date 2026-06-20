@@ -7,6 +7,7 @@ import type {
   CaseArtifact,
   CaseSummary,
   CaseTimeline,
+  HealthResponse,
   NewCaseRequest,
   NewCaseResponse,
   RunSummary,
@@ -23,6 +24,7 @@ export default function App() {
   const [cases, setCases] = useState<CaseSummary[]>([]);
   const [caseFilter, setCaseFilter] = useState("");
   const [activeCase, setActiveCase] = useState<string | null>(null);
+  const [health, setHealth] = useState<HealthResponse | null>(null);
   const [newCaseOpen, setNewCaseOpen] = useState(false);
   const [newCaseState, setNewCaseState] = useState<{
     submitting: boolean;
@@ -63,6 +65,7 @@ export default function App() {
 
   useEffect(() => {
     refreshRuns();
+    api.health().then(setHealth).catch(console.error);
   }, []);
 
   useEffect(() => () => stopStream(), []);
@@ -538,6 +541,8 @@ export default function App() {
         <NewCaseDialog
           submitting={newCaseState.submitting}
           error={newCaseState.error}
+          allowRetrieval={health?.allow_retrieval ?? false}
+          allowModelRuns={health?.allow_model_runs ?? false}
           onSubmit={submitNewCase}
           onClose={() => setNewCaseOpen(false)}
         />
@@ -668,11 +673,15 @@ function ArtifactPanel({
 function NewCaseDialog({
   submitting,
   error,
+  allowRetrieval,
+  allowModelRuns,
   onSubmit,
   onClose,
 }: {
   submitting: boolean;
   error: string | null;
+  allowRetrieval: boolean;
+  allowModelRuns: boolean;
   onSubmit: (payload: NewCaseRequest) => void;
   onClose: () => void;
 }) {
@@ -689,6 +698,8 @@ function NewCaseDialog({
   const [model, setModel] = useState("");
 
   const canSubmit = title.trim().length > 0 && prompt.trim().length >= 20 && !submitting;
+  const retrievalEnabled = allowRetrieval;
+  const modelEnabled = allowModelRuns;
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -701,9 +712,9 @@ function NewCaseDialog({
         .split("\n")
         .map((alias) => alias.trim())
         .filter(Boolean),
-      dry_run: dryRun,
-      retrieve,
-      judge: judge && Boolean(correctAnswer.trim()),
+      dry_run: modelEnabled ? dryRun : true,
+      retrieve: retrievalEnabled ? retrieve : false,
+      judge: modelEnabled && judge && Boolean(correctAnswer.trim()),
       max_queries: maxQueries,
       articles_per_query: articlesPerQuery,
       max_rounds: maxRounds,
@@ -757,10 +768,16 @@ function NewCaseDialog({
             </label>
           </div>
           <div className="option-row">
-            <label><input type="checkbox" checked={dryRun} onChange={(event) => setDryRun(event.target.checked)} /> dry run</label>
-            <label><input type="checkbox" checked={retrieve} onChange={(event) => setRetrieve(event.target.checked)} /> PubMed retrieval</label>
-            <label><input type="checkbox" checked={judge} onChange={(event) => setJudge(event.target.checked)} disabled={!correctAnswer.trim()} /> judge</label>
+            <label><input type="checkbox" checked={dryRun || !modelEnabled} onChange={(event) => setDryRun(event.target.checked)} disabled={!modelEnabled} /> dry run</label>
+            <label><input type="checkbox" checked={retrieve && retrievalEnabled} onChange={(event) => setRetrieve(event.target.checked)} disabled={!retrievalEnabled} /> PubMed retrieval</label>
+            <label><input type="checkbox" checked={judge && modelEnabled} onChange={(event) => setJudge(event.target.checked)} disabled={!modelEnabled || !correctAnswer.trim()} /> judge</label>
           </div>
+          {(!retrievalEnabled || !modelEnabled) && (
+            <div className="demo-note">
+              This demo is configured for safe public use. {!retrievalEnabled && "PubMed retrieval is disabled. "}
+              {!modelEnabled && "Model and judge calls are disabled."}
+            </div>
+          )}
           <div className="field-grid compact">
             <label className="field">
               <span>queries</span>
@@ -777,7 +794,12 @@ function NewCaseDialog({
           </div>
           <label className="field">
             <span>model</span>
-            <input value={model} onChange={(event) => setModel(event.target.value)} placeholder="optional; uses environment default" />
+            <input
+              value={model}
+              onChange={(event) => setModel(event.target.value)}
+              placeholder="optional; uses environment default"
+              disabled={!modelEnabled}
+            />
           </label>
           {error && <div className="error-text">{error}</div>}
         </div>
