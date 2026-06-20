@@ -355,6 +355,48 @@ def test_new_case_endpoint_writes_user_generated_run(tmp_path, monkeypatch):
     assert cases[0].expected_diagnosis == "anti-NMDA receptor encephalitis"
 
 
+def test_new_case_without_answer_is_unscored(tmp_path, monkeypatch):
+    fastapi_testclient = pytest.importorskip("fastapi.testclient")
+    from clinical_viewer.app import app
+
+    generated_dir = tmp_path / "viewer-generated"
+    monkeypatch.setenv("CLINICAL_HARNESS_RUNS", str(tmp_path / "runs"))
+    monkeypatch.setenv("CLINICAL_VIEWER_USER_GENERATED", str(generated_dir))
+    config_mod.runs_dir.cache_clear()
+    config_mod.user_generated_dir.cache_clear()
+    config_mod.user_generated_runs_dir.cache_clear()
+    try:
+        response = fastapi_testclient.TestClient(app).post(
+            "/api/new-case",
+            json={
+                "prompt": (
+                    "A middle-aged patient has recurrent fasting hypoglycemia, low insulin and C-peptide, "
+                    "and a large pelvic mass on imaging."
+                ),
+                "dry_run": True,
+                "retrieve": False,
+                "judge": False,
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        event_path = Path(body["run_dir"]) / f"{body['case_id']}.events.jsonl"
+        for _ in range(50):
+            if event_path.exists() and "case_completed" in event_path.read_text(encoding="utf-8"):
+                break
+            time.sleep(0.05)
+        else:
+            pytest.fail("new case background run did not finish")
+        timeline = build_case_timeline(Path(body["run_dir"]), body["run_id"], body["case_id"])
+    finally:
+        config_mod.runs_dir.cache_clear()
+        config_mod.user_generated_dir.cache_clear()
+        config_mod.user_generated_runs_dir.cache_clear()
+
+    assert timeline.expected_diagnosis in (None, "")
+    assert all(event.type != EventType.JUDGE for event in timeline.events)
+
+
 def test_runledger_case_is_discovered_and_replayed(tmp_path, monkeypatch):
     run_dir = tmp_path / "run-1"
     run_dir.mkdir()

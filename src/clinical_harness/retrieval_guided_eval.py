@@ -681,6 +681,8 @@ def run_retrieval_guided_manifest_eval(
     def _run_case(index: int, manifest_row: dict[str, Any]) -> RetrievalGuidedEvalRow:
         case = case_from_manifest_row(manifest_row)
         answer_key = answer_key_from_manifest_row(manifest_row)
+        has_expected_answer = _has_expected_answer(answer_key, manifest_row)
+        expected_diagnosis = answer_key["diagnosis"] if has_expected_answer else ""
         preset = select_preset(case.prompt, case_id=case.case_id, use_overrides=use_preset_overrides)
         if progress:
             print(f"[{index}/{total}] retrieval-guided {case.case_id} preset={preset}", file=sys.stderr, flush=True)
@@ -706,7 +708,7 @@ def run_retrieval_guided_manifest_eval(
             row = RetrievalGuidedEvalRow(
                 case_id=case.case_id,
                 preset=preset,
-                expected_diagnosis=answer_key["diagnosis"],
+                expected_diagnosis=expected_diagnosis,
                 model_final_diagnosis=final,
                 query_count=len(queries),
                 evidence_count=len([item for item in evidence if not item.excluded]),
@@ -716,8 +718,12 @@ def run_retrieval_guided_manifest_eval(
                 evidence_path=str(evidence_path),
                 response_path=str(response_path),
                 error=error,
-                gold_rank=_gold_rank(_ranked_diagnoses(model_payload), answer_key, judge_client=_jc, fallback_client=judge_fallback_client),
-                **_score_fields(final, answer_key, judge_client=_jc, fallback_client=judge_fallback_client),
+                gold_rank=(
+                    _gold_rank(_ranked_diagnoses(model_payload), answer_key, judge_client=_jc, fallback_client=judge_fallback_client)
+                    if has_expected_answer
+                    else None
+                ),
+                **_score_fields(final, answer_key if has_expected_answer else None, judge_client=_jc, fallback_client=judge_fallback_client),
             )
             if event_path.exists():
                 return row
@@ -727,7 +733,7 @@ def run_retrieval_guided_manifest_eval(
                 "runner",
                 f"Case {case.case_id}",
                 summary=f"preset: {preset}",
-                payload={"preset": preset, "expected_diagnosis": answer_key["diagnosis"]},
+                payload={"preset": preset, "expected_diagnosis": expected_diagnosis or None},
             )
             _emit_existing_case_trace(trace, row)
             return row
@@ -738,7 +744,7 @@ def run_retrieval_guided_manifest_eval(
             "runner",
             f"Case {case.case_id}",
             summary=f"preset: {preset}",
-            payload={"preset": preset, "expected_diagnosis": answer_key["diagnosis"]},
+            payload={"preset": preset, "expected_diagnosis": expected_diagnosis or None},
         )
 
         def record_model_call(payload: dict[str, Any]) -> None:
@@ -1019,7 +1025,7 @@ def run_retrieval_guided_manifest_eval(
         row = RetrievalGuidedEvalRow(
             case_id=case.case_id,
             preset=preset,
-            expected_diagnosis=answer_key["diagnosis"],
+            expected_diagnosis=expected_diagnosis,
             model_final_diagnosis=final,
             query_count=len(queries),
             evidence_count=len([item for item in evidence if not item.excluded]),
@@ -1031,33 +1037,38 @@ def run_retrieval_guided_manifest_eval(
             error=error,
             samples=samples,
             agreement=agreement,
-            gold_rank=_gold_rank(_ranked_diagnoses(model_payload), answer_key, judge_client=_jc, fallback_client=judge_fallback_client),
+            gold_rank=(
+                _gold_rank(_ranked_diagnoses(model_payload), answer_key, judge_client=_jc, fallback_client=judge_fallback_client)
+                if has_expected_answer
+                else None
+            ),
             **_score_fields(
                 final,
-                answer_key,
+                answer_key if has_expected_answer else None,
                 judge_client=_jc,
                 fallback_client=judge_fallback_client,
                 model_call_recorder=record_model_call,
             ),
         )
-        trace.emit(
-            "judge",
-            "judge",
-            f"Verdict: {row.score or row.lexical_score}",
-            summary=row.judge_match_type,
-            status="pass" if row.score == "pass" else "fail" if row.score == "fail" else "info",
-            payload={
-                "score": row.score,
-                "score_method": row.score_method,
-                "judge_match_type": row.judge_match_type,
-                "judge_rationale": row.judge_rationale,
-                "expected_diagnosis": row.expected_diagnosis,
-                "model_final_diagnosis": row.model_final_diagnosis,
-                "lexical_score": row.lexical_score,
-                "agreement": row.agreement,
-                "samples": row.samples,
-            },
-        )
+        if has_expected_answer:
+            trace.emit(
+                "judge",
+                "judge",
+                f"Verdict: {row.score or row.lexical_score}",
+                summary=row.judge_match_type,
+                status="pass" if row.score == "pass" else "fail" if row.score == "fail" else "info",
+                payload={
+                    "score": row.score,
+                    "score_method": row.score_method,
+                    "judge_match_type": row.judge_match_type,
+                    "judge_rationale": row.judge_rationale,
+                    "expected_diagnosis": row.expected_diagnosis,
+                    "model_final_diagnosis": row.model_final_diagnosis,
+                    "lexical_score": row.lexical_score,
+                    "agreement": row.agreement,
+                    "samples": row.samples,
+                },
+            )
         trace.emit(
             "case_completed",
             "runner",
@@ -1364,7 +1375,7 @@ def _generate_final_answer(
 
 def _score_fields(
     final: str | None,
-    answer_key: dict[str, Any],
+    answer_key: dict[str, Any] | None,
     *,
     judge_client: OpenAICompatibleChatClient | None,
     fallback_client: OpenAICompatibleChatClient | None = None,
@@ -1372,6 +1383,14 @@ def _score_fields(
 ) -> dict[str, Any]:
     """Compute lexical and (optional) judge verdicts for one final diagnosis."""
 
+    if answer_key is None:
+        return {
+            "lexical_score": "not_run",
+            "score": None,
+            "score_method": None,
+            "judge_match_type": None,
+            "judge_rationale": None,
+        }
     aliases = tuple(answer_key.get("aliases", ()) or ())
     lexical = lexical_score(final or "", answer_key)
     verdict: JudgeVerdict = score_diagnosis(
@@ -1389,6 +1408,14 @@ def _score_fields(
         "judge_match_type": verdict.match_type,
         "judge_rationale": verdict.rationale,
     }
+
+
+def _has_expected_answer(answer_key: dict[str, Any], manifest_row: dict[str, Any]) -> bool:
+    metadata = manifest_row.get("metadata")
+    if isinstance(metadata, dict) and metadata.get("correct_answer_provided") is False:
+        return False
+    diagnosis = answer_key.get("diagnosis")
+    return isinstance(diagnosis, str) and diagnosis.strip() not in {"", "unknown"}
 
 
 def _ranked_diagnoses(model_payload: dict[str, Any] | None, *, limit: int = 5) -> list[str]:
@@ -2563,24 +2590,25 @@ def _emit_existing_case_trace(trace: _CaseTrace, row: RetrievalGuidedEvalRow) ->
         status="info",
         payload={"response_path": row.response_path},
     )
-    trace.emit(
-        "judge",
-        "judge",
-        f"Verdict: {row.score or row.lexical_score}",
-        summary=row.judge_match_type,
-        status="pass" if row.score == "pass" else "fail" if row.score == "fail" else "info",
-        payload={
-            "score": row.score,
-            "score_method": row.score_method,
-            "judge_match_type": row.judge_match_type,
-            "judge_rationale": row.judge_rationale,
-            "expected_diagnosis": row.expected_diagnosis,
-            "model_final_diagnosis": row.model_final_diagnosis,
-            "lexical_score": row.lexical_score,
-            "agreement": row.agreement,
-            "samples": row.samples,
-        },
-    )
+    if row.expected_diagnosis:
+        trace.emit(
+            "judge",
+            "judge",
+            f"Verdict: {row.score or row.lexical_score}",
+            summary=row.judge_match_type,
+            status="pass" if row.score == "pass" else "fail" if row.score == "fail" else "info",
+            payload={
+                "score": row.score,
+                "score_method": row.score_method,
+                "judge_match_type": row.judge_match_type,
+                "judge_rationale": row.judge_rationale,
+                "expected_diagnosis": row.expected_diagnosis,
+                "model_final_diagnosis": row.model_final_diagnosis,
+                "lexical_score": row.lexical_score,
+                "agreement": row.agreement,
+                "samples": row.samples,
+            },
+        )
     trace.emit(
         "case_completed",
         "runner",

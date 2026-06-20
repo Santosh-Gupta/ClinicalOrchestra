@@ -140,10 +140,14 @@ export default function App() {
 
   const eventCounts = useMemo(() => traceFilterCounts(shown), [shown]);
   const traceSummary = useMemo(() => summarizeTrace(shown), [shown]);
-  const isWorking = Boolean(timeline && (streaming || activeCaseSummary?.is_live || activeCaseSummary?.is_complete === false));
+  const latestEvent = shown.at(-1) ?? null;
+  const isWorking = Boolean(
+    timeline &&
+      (streaming || activeCaseSummary?.is_live || activeCaseSummary?.is_complete === false || latestEvent?.type !== "case_completed"),
+  );
   const workingStatus = useMemo(
-    () => (timeline ? workingStatusText(shown.at(-1) ?? null, { streaming, isLive: Boolean(activeCaseSummary?.is_live) }) : null),
-    [timeline, shown, streaming, activeCaseSummary?.is_live],
+    () => (timeline ? workingStatusText(latestEvent, { streaming, isLive: Boolean(activeCaseSummary?.is_live) }) : null),
+    [timeline, latestEvent, streaming, activeCaseSummary?.is_live],
   );
 
   function stopStream() {
