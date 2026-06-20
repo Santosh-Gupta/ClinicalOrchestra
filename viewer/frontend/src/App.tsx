@@ -240,7 +240,7 @@ export default function App() {
                 ↻
               </button>
               <button
-                className="panel-action"
+                className="panel-action new-case-action"
                 onClick={() => setNewCaseOpen(true)}
                 title="Create a new viewer-generated case"
               >

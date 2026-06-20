@@ -93,6 +93,18 @@ body {
 }
 .panel-toggle:hover,
 .panel-action:hover { border-color: var(--accent); color: var(--text); }
+.new-case-action {
+  min-width: 58px; height: 30px; padding: 0 12px;
+  border-color: rgba(63,185,80,0.65);
+  background: rgba(63,185,80,0.18);
+  color: #9ff5ad;
+  font-weight: 700;
+}
+.new-case-action:hover {
+  border-color: var(--pass);
+  background: rgba(63,185,80,0.28);
+  color: #d4ffdc;
+}
 .panel-toggle.active {
   border-color: var(--accent); background: var(--accent-soft); color: var(--text);
 }
