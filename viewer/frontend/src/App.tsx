@@ -911,10 +911,12 @@ function NewCaseDialog({
           </button>
         </div>
         <div className="new-case-body">
-          <label className="field">
-            <span>title optional</span>
-            <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="leave blank for demo" />
-          </label>
+          {!IS_PUBLIC_EDITION && (
+            <label className="field">
+              <span>title optional</span>
+              <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="leave blank for demo" />
+            </label>
+          )}
           <label className="field">
             <span>case text</span>
             <textarea
