@@ -9,10 +9,11 @@ decision support.
 
 ## Agent-Trace Viewer
 
-ClinicalHarness includes a Codex / Claude-Code-style viewer for replaying a
-diagnosis run as an inspectable trace: problem representation, generated
-queries, PubMed/PMC tool calls, retrieved evidence, synthesis, injected prompt
-packet, visible model responses, final diagnosis, and judge verdict.
+ClinicalHarness includes a Codex / Claude-Code-style viewer for replaying or
+watching a diagnosis run as an inspectable trace: problem representation,
+generated queries, PubMed/PMC tool calls, retrieved evidence, synthesis,
+injected prompt packet, visible model responses, final diagnosis, and, when a
+correct answer is provided, judge verdict.
 
 <a href="viewer/assets/clinical-viewer-trace.jpg">
   <img src="viewer/assets/clinical-viewer-trace.jpg" alt="ClinicalHarness Viewer trace" width="100%">
@@ -33,8 +34,8 @@ What makes it useful:
 
 - **Watch the run unfold.** Replay a finished run event-by-event, or stream live
   events while a run is active.
-- **Try a brand-new case.** Use the viewer's **New** button to enter a
-  de-identified case, optionally provide the correct answer, and create a
+- **Try a brand-new case.** Use **New Case** in the public demo, or **New** in
+  the advanced viewer, to enter a de-identified case and create a
   viewer-generated run under `viewer/user_generated/`.
 - **Inspect every layer.** Expand cards for search queries, tool calls,
   evidence, prompt packets, model responses, answer JSON, judge output, and raw
@@ -44,9 +45,12 @@ What makes it useful:
 - **Track model usage.** Surface latency and token details, including prompt,
   completion, cache, and reasoning-token fields when providers return them.
 - **Compare signal quickly.** Trace filters isolate model, retrieval,
-  reasoning, judge, warning, and error events.
-- **Use the space you need.** Collapsible Runs and Cases panels let the trace
-  take over the full window for demos and deep review.
+  reasoning, judge, warning, and error events. The public demo splits the
+  trace into retrieval and reasoning lanes so visitors can see search activity
+  separately from the diagnostic thread.
+- **Use the space you need.** The advanced UI has collapsible Runs and Cases
+  panels; the public UI removes those side panels entirely and starts from a
+  focused New Case workflow.
 - **Save optimization-ready traces.** Persist a user-generated `trace.json` and
   `trace.md` bundle with events, artifacts, model answer, score, and the correct
   answer when available.
@@ -55,7 +59,8 @@ Open the full guide at [viewer/README.md](viewer/README.md).
 
 For a public demo, deploy the included root `Dockerfile` or Render Blueprint
 (`render.yaml`). The container serves the viewer UI and API from one FastAPI
-service and defaults to dry-run-only public case submissions.
+service. The Docker build compiles the public viewer edition; the Render
+environment controls whether public submissions may call PubMed and model APIs.
 
 ## Quick Start
 
@@ -126,6 +131,7 @@ continues and writes the same artifacts and event ledgers for later replay.
 - [Evaluation Design](docs/evaluation_design.md): closed-book, PubMed-only, open-literature, and web-enabled modes.
 - [Source And Licensing Policy](docs/source_and_licensing.md): boundaries for benchmarking, public release, and training.
 - [ClinicalHarness Viewer](viewer/README.md): UI guide, local run instructions, API surface, and live ingest notes.
+- [Viewer Review Handoff](viewer/REVIEW_HANDOFF.md): checklist for external LLM/code review of the hosted viewer.
 - [Design Decisions](docs/DESIGN_DECISIONS.md): implementation decisions and rationale.
 - [Scaled Retrieval Design](docs/scaled_retrieval_design_20260614.md): context-isolated per-paper extraction.
 - [Multi-Agent Diagnostic Ensemble Design](docs/multi_agent_design_20260614.md): independent angle-agents plus consolidating coordinator.

@@ -3,7 +3,8 @@
 This document is the design contract and the staged plan. It is written so a
 different agent/LLM can take ownership without re-deriving the decisions. Read
 the repo-level [`AGENTS.md`](../AGENTS.md) first — the viewer is a subproject and
-follows the same "don't silently revert a documented decision" rule.
+follows the same "don't silently revert a documented decision" rule. For a
+review checklist, also read [`REVIEW_HANDOFF.md`](REVIEW_HANDOFF.md).
 
 ---
 
@@ -27,6 +28,11 @@ Design tenets:
 - **The contract is the schema.** `backend/clinical_viewer/events.py` and
   `frontend/src/types.ts` are the seam. Extend by adding an `EventType` + a
   payload shape + a renderer — never by special-casing a stage in three places.
+- **Public and advanced editions may diverge deliberately.** The public demo is
+  optimized for visitors starting one case and watching it unfold; the advanced
+  UI is optimized for local run/case review. Keep the edition split explicit in
+  `frontend/src/edition.ts` and `App.tsx`, rather than relying on a pile of
+  backend capability flags.
 
 ## 2. The data the harness leaves behind
 
@@ -79,17 +85,48 @@ endpoint live mode will serve real-time events from.
 
 ## 5. Frontend
 
-Vite + React + TS. Three-pane shell (`App.tsx`); `EventCard.tsx` switches on
-`type` to render bodies (a problem-representation paragraph, a query's intent, a
-paper with its PubMed link, a synthesis's discriminators, the final answer with
-key papers, the judge's rationale). `types.ts` mirrors `events.py` by hand;
-when the schema settles, generate it from `/openapi.json`.
+Vite + React + TS. `EventCard.tsx` switches on `type` to render bodies (a
+problem-representation paragraph, a query's intent, a paper with its PubMed
+link, a synthesis's discriminators, the final answer with key papers, the
+judge's rationale). `types.ts` mirrors `events.py` by hand; when the schema
+settles, generate it from `/openapi.json`.
+
+There are two frontend editions:
+
+- **Advanced** is the local reviewer UI: three-pane shell (`runs · cases ·
+  trace`), collapsible side panels, artifact chips, filters, save/export, and
+  full New Case controls for dry-run/retrieval/model/judge when backend env vars
+  allow them.
+- **Public** is compiled by Docker with `VITE_VIEWER_EDITION=public`: no left
+  runs/cases panels, a prominent main-panel **New Case** entry point, a minimal
+  case form, and a split trace body. Retrieval events render in the left lane;
+  everything else renders in the right reasoning lane. A top working banner and
+  a bottom-of-reasoning-lane working banner stay visible until
+  `case_completed`.
+
+Public new-case submissions hide title, aliases, dry-run, retrieval, model, and
+judge controls. They request retrieval and model execution, but the backend
+still enforces `CLINICAL_VIEWER_ALLOW_RETRIEVAL` and
+`CLINICAL_VIEWER_ALLOW_MODEL_RUNS`. If the user does not supply a correct
+answer, the harness treats the case as unscored and suppresses judge events
+instead of comparing against `"unknown"`.
 
 ## 6. Roadmap — simple → advanced
 
 ### Stage 0 — MVP (done)
 Replay viewer: run/case browser, reconstructed timelines, SSE "replay",
 per-type cards, judge verdicts. Works against the existing 60+ runs.
+
+### Stage 0.5 — Public hosted demo (done)
+- Docker builds the public frontend edition and serves it with the FastAPI API
+  from one web service.
+- Render deployment works with `/api/health` as the health check and optional
+  `/data` disk persistence for user-generated runs/traces.
+- Public UI starts from **New Case**, removes the run/case browser, splits
+  retrieval and reasoning into separate lanes, and keeps dynamic working
+  indicators visible during long model calls.
+- Public cases without a correct answer are unscored: the final answer remains
+  visible and saveable, but no fake judge failure is emitted.
 
 ### Stage 1 — Live mode (done for MVP)
 1. **Done:** `retrieval_guided_eval.run_retrieval_guided_manifest_eval` accepts
@@ -150,3 +187,5 @@ per-type cards, judge verdicts. Works against the existing 60+ runs.
 - The harness is the source of truth for *what* happens; the viewer must not
   invent semantics the harness doesn't have. If a trace needs data the harness
   doesn't emit, add it to the harness (with an ADR), don't fake it in the adapter.
+- Be careful with public-demo scoring semantics: a missing correct answer means
+  "not benchmarked", not "expected diagnosis is unknown".
