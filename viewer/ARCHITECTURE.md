@@ -111,6 +111,15 @@ still enforces `CLINICAL_VIEWER_ALLOW_RETRIEVAL` and
 answer, the harness treats the case as unscored and suppresses judge events
 instead of comparing against `"unknown"`.
 
+For real viewer-submitted model runs, the backend defaults to a showcase trace
+profile controlled by `CLINICAL_VIEWER_SHOWCASE_TRACE=true`: model evidence
+distillation, a minimum of three retrieval rounds capped by the submitted
+`max_rounds`, PMC full-text enrichment for top PMCID hits, and per-paper
+screening before final answer. This is intentionally about demonstration and
+observability; benchmark-optimal configs can remain leaner. The experimental
+multi-angle ensemble remains opt-in via `CLINICAL_VIEWER_SHOWCASE_ENSEMBLE=true`
+because it adds many calls and is not an accuracy default.
+
 ## 6. Roadmap — simple → advanced
 
 ### Stage 0 — MVP (done)
@@ -125,6 +134,8 @@ per-type cards, judge verdicts. Works against the existing 60+ runs.
 - Public UI starts from **New Case**, removes the run/case browser, splits
   retrieval and reasoning into separate lanes, and keeps dynamic working
   indicators visible during long model calls.
+- Public model runs use a richer showcase trace profile: evidence distillation,
+  forced bounded minimum rounds, PMC full text, and paper screening.
 - Public cases without a correct answer are unscored: the final answer remains
   visible and saveable, but no fake judge failure is emitted.
 

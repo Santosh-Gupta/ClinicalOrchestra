@@ -37,6 +37,10 @@ What makes it useful:
 - **Try a brand-new case.** Use **New Case** in the public demo, or **New** in
   the advanced viewer, to enter a de-identified case and create a
   viewer-generated run under `viewer/user_generated/`.
+- **Show the full pipeline.** Public model runs use a showcase trace profile
+  with evidence distillation, bounded multi-round retrieval, PMC full-text
+  enrichment, and per-paper screening, while benchmark runs can keep leaner
+  accuracy-oriented settings.
 - **Inspect every layer.** Expand cards for search queries, tool calls,
   evidence, prompt packets, model responses, answer JSON, judge output, and raw
   event payloads.

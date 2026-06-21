@@ -397,6 +397,55 @@ def test_new_case_without_answer_is_unscored(tmp_path, monkeypatch):
     assert all(event.type != EventType.JUDGE for event in timeline.events)
 
 
+def test_new_case_showcase_helpers_default_to_rich_model_runs(monkeypatch):
+    pytest.importorskip("fastapi")
+    from clinical_viewer.app import (
+        NewCaseRequest,
+        _showcase_min_rounds,
+        _showcase_paper_concurrency,
+        _showcase_trace_enabled,
+    )
+
+    monkeypatch.delenv("CLINICAL_VIEWER_SHOWCASE_TRACE", raising=False)
+    monkeypatch.delenv("CLINICAL_VIEWER_SHOWCASE_MIN_ROUNDS", raising=False)
+    monkeypatch.delenv("CLINICAL_VIEWER_SHOWCASE_PAPER_CONCURRENCY", raising=False)
+    payload = NewCaseRequest(
+        prompt=(
+            "A patient presents with a complex multisystem syndrome requiring literature retrieval "
+            "and careful diagnostic discrimination."
+        ),
+        dry_run=False,
+        retrieve=True,
+        max_rounds=5,
+    )
+
+    assert _showcase_trace_enabled(payload) is True
+    assert _showcase_min_rounds(payload.max_rounds) == 3
+    assert _showcase_paper_concurrency() == 4
+
+
+def test_new_case_showcase_helpers_can_be_disabled_or_bounded(monkeypatch):
+    pytest.importorskip("fastapi")
+    from clinical_viewer.app import NewCaseRequest, _showcase_min_rounds, _showcase_trace_enabled
+
+    payload = NewCaseRequest(
+        prompt=(
+            "A patient presents with a complex multisystem syndrome requiring literature retrieval "
+            "and careful diagnostic discrimination."
+        ),
+        dry_run=False,
+        retrieve=True,
+        max_rounds=2,
+    )
+
+    monkeypatch.setenv("CLINICAL_VIEWER_SHOWCASE_TRACE", "false")
+    assert _showcase_trace_enabled(payload) is False
+
+    monkeypatch.setenv("CLINICAL_VIEWER_SHOWCASE_TRACE", "true")
+    monkeypatch.setenv("CLINICAL_VIEWER_SHOWCASE_MIN_ROUNDS", "5")
+    assert _showcase_min_rounds(payload.max_rounds) == 2
+
+
 def test_runledger_case_is_discovered_and_replayed(tmp_path, monkeypatch):
     run_dir = tmp_path / "run-1"
     run_dir.mkdir()

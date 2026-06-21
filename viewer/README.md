@@ -84,12 +84,17 @@ The public hosted UI is deliberately simpler:
    dry-run, model, retrieval, and judge controls are hidden. PubMed retrieval is
    always requested from the public form; the backend still enforces whether
    retrieval is allowed by environment configuration.
-3. **Split trace lanes.** The trace body is split into **Retrieval** on the left
+3. **Showcase trace depth.** Real public model runs use a richer viewer preset:
+   model evidence distillation, a bounded minimum of retrieval rounds, PMC
+   full-text enrichment for top hits, and per-paper screening before the final
+   answer. This is meant to show the harness capabilities; benchmark runs can
+   still use leaner accuracy-oriented settings.
+4. **Split trace lanes.** The trace body is split into **Retrieval** on the left
    and **Reasoning** on the right. Query planning, PubMed/PMC calls, and
    evidence events appear in Retrieval; case setup, problem representation,
    prompt assembly, model calls/responses, synthesis, final answer, save status,
    and completion appear in Reasoning.
-4. **Working indicators.** A dynamic working banner appears near the top of the
+5. **Working indicators.** A dynamic working banner appears near the top of the
    trace and another appears at the bottom of the Reasoning lane until the
    run emits `case_completed`, so long model calls after prompt assembly do not
    look stalled.
@@ -270,7 +275,9 @@ The checked-in `render.yaml` defaults to a locked-down public service:
   `/data/user_generated` inside the service filesystem.
 
 The current public demo experience is intended to run retrieval and model calls
-when you explicitly enable them in Render. Set these environment variables:
+when you explicitly enable them in Render. It also defaults to a richer
+showcase trace preset for real public model runs. Set these environment
+variables:
 
 ```text
 CLINICAL_VIEWER_ALLOW_RETRIEVAL=true
@@ -284,6 +291,22 @@ DEEPSEEK_MODEL=deepseek-v4-flash
 
 The model client also accepts `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and
 `OPENAI_MODEL` as OpenAI-compatible fallbacks.
+
+Optional showcase knobs:
+
+```text
+CLINICAL_VIEWER_SHOWCASE_TRACE=true
+CLINICAL_VIEWER_SHOWCASE_MIN_ROUNDS=3
+CLINICAL_VIEWER_SHOWCASE_PAPER_CONCURRENCY=4
+CLINICAL_VIEWER_SHOWCASE_ENSEMBLE=false
+```
+
+`CLINICAL_VIEWER_SHOWCASE_TRACE=true` makes non-dry-run viewer submissions use
+evidence distillation, at least the configured minimum number of retrieval
+rounds capped by the submitted `max_rounds`, PMC full-text enrichment, and
+per-paper screening. The ensemble pre-pass is left opt-in because it adds
+several model calls and is better treated as a capability demo than an
+accuracy default.
 
 Only enable model calls on a public demo if you are comfortable with visitors
 using the configured API budget. Cases submitted through the public UI should be

@@ -344,16 +344,25 @@ def _run_new_case_background(
         from clinical_harness.ncbi import NcbiClient, NcbiConfig
         from clinical_harness.retrieval_guided_eval import HarnessConfig, run_retrieval_guided_manifest_eval
 
+        ncbi_config = NcbiConfig(
+            email=os.getenv("NCBI_EMAIL"),
+            api_key=os.getenv("NCBI_API_KEY"),
+            tool="ClinicalHarnessViewer",
+        )
         pubmed_client = (
-            NcbiClient(
-                NcbiConfig(
-                    email=os.getenv("NCBI_EMAIL"),
-                    api_key=os.getenv("NCBI_API_KEY"),
-                    tool="ClinicalHarnessViewer",
-                )
-            )
+            NcbiClient(ncbi_config)
             if payload.retrieve
             else None
+        )
+        showcase = _showcase_trace_enabled(payload)
+        pmc_client = NcbiClient(ncbi_config) if payload.retrieve and showcase else None
+        harness_config = HarnessConfig(
+            eval_mode=False,
+            adaptive_rounds=not showcase,
+            min_rounds=_showcase_min_rounds(payload.max_rounds) if showcase else 1,
+            use_paper_extractor=showcase,
+            paper_extractor_concurrency=_showcase_paper_concurrency(),
+            use_ensemble=_env_bool("CLINICAL_VIEWER_SHOWCASE_ENSEMBLE", default=False) if showcase else False,
         )
 
         def emitter(raw_event: dict) -> None:
@@ -372,17 +381,35 @@ def _run_new_case_background(
             dry_run=payload.dry_run,
             retrieve=payload.retrieve,
             pubmed_client=pubmed_client,
+            pmc_client=pmc_client,
             model_name=payload.model,
             max_queries=payload.max_queries,
             articles_per_query=payload.articles_per_query,
             max_rounds=payload.max_rounds,
+            distill_evidence=showcase,
+            use_full_text=showcase,
             judge=payload.judge and bool(payload.correct_answer and payload.correct_answer.strip()),
             concurrency=1,
             emitter=emitter,
-            config=HarnessConfig(eval_mode=False),
+            config=harness_config,
         )
     except Exception as exc:  # noqa: BLE001 - surface failures as trace events.
         _write_new_case_error_trace(run_dir, run_id, case_id, str(exc), loop)
+
+
+def _showcase_trace_enabled(payload: NewCaseRequest) -> bool:
+    """Use the richer trace path for real viewer-submitted model runs."""
+
+    return _env_bool("CLINICAL_VIEWER_SHOWCASE_TRACE", default=True) and not payload.dry_run and payload.retrieve
+
+
+def _showcase_min_rounds(max_rounds: int) -> int:
+    value = _env_int("CLINICAL_VIEWER_SHOWCASE_MIN_ROUNDS", default=3)
+    return max(1, min(max_rounds, value))
+
+
+def _showcase_paper_concurrency() -> int:
+    return max(1, min(8, _env_int("CLINICAL_VIEWER_SHOWCASE_PAPER_CONCURRENCY", default=4)))
 
 
 def _write_new_case_error_trace(
@@ -473,6 +500,23 @@ def _safe_case_slug(value: str, *, prefix: str) -> str:
     if not slug or slug == "trace":
         slug = prefix
     return slug
+
+
+def _env_bool(name: str, *, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str, *, default: int) -> int:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    try:
+        return int(value.strip())
+    except ValueError:
+        return default
 
 
 def _display_title(title: str | None, prompt: str) -> str:

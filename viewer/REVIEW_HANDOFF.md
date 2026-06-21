@@ -25,6 +25,9 @@ hidden. It has its own demo-oriented workflow:
 - title, aliases, dry-run, retrieval, model, and judge controls are hidden;
 - PubMed retrieval is always requested by the public form, but the backend still
   decides whether retrieval is allowed from environment variables;
+- real public model runs default to a richer showcase trace profile: evidence
+  distillation, a bounded minimum number of retrieval rounds, PMC full-text
+  enrichment, and per-paper screening;
 - trace body is split into Retrieval and Reasoning lanes;
 - working indicators remain visible until `case_completed`, including during
   long model calls after final prompt assembly.
@@ -76,6 +79,14 @@ The advanced edition keeps the original reviewer tooling:
   `DEEPSEEK_MODEL` configure DeepSeek.
 - `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL` are OpenAI-compatible
   fallbacks.
+- `CLINICAL_VIEWER_SHOWCASE_TRACE=true` enables the richer public-demo trace
+  profile for real viewer-submitted model runs. It is on by default.
+- `CLINICAL_VIEWER_SHOWCASE_MIN_ROUNDS=3` controls the minimum retrieval rounds,
+  capped by the submitted `max_rounds`.
+- `CLINICAL_VIEWER_SHOWCASE_PAPER_CONCURRENCY=4` bounds per-paper screening
+  concurrency.
+- `CLINICAL_VIEWER_SHOWCASE_ENSEMBLE=false` leaves the multi-angle ensemble
+  opt-in because it adds several model calls and is not an accuracy default.
 
 ## Suggested review focus
 
@@ -84,13 +95,16 @@ The advanced edition keeps the original reviewer tooling:
    correctly.
 2. Long-running state: working indicators should stay visible until
    `case_completed`.
-3. Scoring semantics: no judge event for public cases without a correct answer.
-4. Data safety: user-generated artifacts should remain under
+3. Showcase trace depth: real public model runs should pass
+   `distill_evidence=True`, `use_full_text=True`, `use_paper_extractor=True`,
+   and a bounded minimum round count to the harness.
+4. Scoring semantics: no judge event for public cases without a correct answer.
+5. Data safety: user-generated artifacts should remain under
    `viewer/user_generated/` or configured hosted storage and should not be
    committed.
-5. Event schema compatibility: `events.py`, `types.ts`, replay adapter, and
+6. Event schema compatibility: `events.py`, `types.ts`, replay adapter, and
    `EventCard.tsx` should remain lenient for older traces.
-6. Deployment: Docker public build, Render health check, and environment
+7. Deployment: Docker public build, Render health check, and environment
    variables should match the docs.
 
 ## Useful checks
