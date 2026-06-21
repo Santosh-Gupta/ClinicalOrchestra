@@ -306,7 +306,8 @@ evidence distillation, at least the configured minimum number of retrieval
 rounds capped by the submitted `max_rounds`, PMC full-text enrichment, and
 per-paper screening. The ensemble pre-pass is left opt-in because it adds
 several model calls and is better treated as a capability demo than an
-accuracy default.
+accuracy default. The viewer only passes ensemble config when the installed
+harness version supports it.
 
 Only enable model calls on a public demo if you are comfortable with visitors
 using the configured API budget. Cases submitted through the public UI should be

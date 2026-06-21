@@ -446,6 +446,21 @@ def test_new_case_showcase_helpers_can_be_disabled_or_bounded(monkeypatch):
     assert _showcase_min_rounds(payload.max_rounds) == 2
 
 
+def test_showcase_harness_config_ignores_unsupported_fields(monkeypatch):
+    pytest.importorskip("fastapi")
+    from clinical_harness.retrieval_guided_eval import HarnessConfig
+    from clinical_viewer.app import _build_harness_config
+
+    monkeypatch.setenv("CLINICAL_VIEWER_SHOWCASE_ENSEMBLE", "true")
+    config = _build_harness_config(HarnessConfig, showcase=True, max_rounds=5)
+
+    assert config.eval_mode is False
+    assert config.adaptive_rounds is False
+    assert config.min_rounds == 3
+    assert config.use_paper_extractor is True
+    assert not hasattr(config, "use_ensemble")
+
+
 def test_runledger_case_is_discovered_and_replayed(tmp_path, monkeypatch):
     run_dir = tmp_path / "run-1"
     run_dir.mkdir()

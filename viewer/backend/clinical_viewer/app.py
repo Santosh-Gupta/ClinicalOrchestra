@@ -356,13 +356,10 @@ def _run_new_case_background(
         )
         showcase = _showcase_trace_enabled(payload)
         pmc_client = NcbiClient(ncbi_config) if payload.retrieve and showcase else None
-        harness_config = HarnessConfig(
-            eval_mode=False,
-            adaptive_rounds=not showcase,
-            min_rounds=_showcase_min_rounds(payload.max_rounds) if showcase else 1,
-            use_paper_extractor=showcase,
-            paper_extractor_concurrency=_showcase_paper_concurrency(),
-            use_ensemble=_env_bool("CLINICAL_VIEWER_SHOWCASE_ENSEMBLE", default=False) if showcase else False,
+        harness_config = _build_harness_config(
+            HarnessConfig,
+            showcase=showcase,
+            max_rounds=payload.max_rounds,
         )
 
         def emitter(raw_event: dict) -> None:
@@ -410,6 +407,22 @@ def _showcase_min_rounds(max_rounds: int) -> int:
 
 def _showcase_paper_concurrency() -> int:
     return max(1, min(8, _env_int("CLINICAL_VIEWER_SHOWCASE_PAPER_CONCURRENCY", default=4)))
+
+
+def _build_harness_config(harness_config_cls: type, *, showcase: bool, max_rounds: int):
+    """Build a viewer config that tolerates older committed harness versions."""
+
+    available = getattr(harness_config_cls, "__dataclass_fields__", {})
+    values = {
+        "eval_mode": False,
+        "adaptive_rounds": not showcase,
+        "min_rounds": _showcase_min_rounds(max_rounds) if showcase else 1,
+        "use_paper_extractor": showcase,
+        "paper_extractor_concurrency": _showcase_paper_concurrency(),
+    }
+    if showcase and _env_bool("CLINICAL_VIEWER_SHOWCASE_ENSEMBLE", default=False):
+        values["use_ensemble"] = True
+    return harness_config_cls(**{key: value for key, value in values.items() if key in available})
 
 
 def _write_new_case_error_trace(

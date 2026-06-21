@@ -87,6 +87,7 @@ The advanced edition keeps the original reviewer tooling:
   concurrency.
 - `CLINICAL_VIEWER_SHOWCASE_ENSEMBLE=false` leaves the multi-angle ensemble
   opt-in because it adds several model calls and is not an accuracy default.
+  It is ignored unless the installed harness version supports `use_ensemble`.
 
 ## Suggested review focus
 

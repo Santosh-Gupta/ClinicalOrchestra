@@ -118,7 +118,9 @@ distillation, a minimum of three retrieval rounds capped by the submitted
 screening before final answer. This is intentionally about demonstration and
 observability; benchmark-optimal configs can remain leaner. The experimental
 multi-angle ensemble remains opt-in via `CLINICAL_VIEWER_SHOWCASE_ENSEMBLE=true`
-because it adds many calls and is not an accuracy default.
+because it adds many calls and is not an accuracy default. The viewer filters
+showcase config kwargs against the installed `HarnessConfig` fields so a public
+deploy does not fail when local experimental harness fields are absent.
 
 ## 6. Roadmap — simple → advanced
 
