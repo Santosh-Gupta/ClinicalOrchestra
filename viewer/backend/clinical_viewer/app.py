@@ -23,6 +23,7 @@ import asyncio
 import json
 import os
 import re
+import shutil
 import sys
 import threading
 from datetime import UTC, datetime
@@ -131,6 +132,7 @@ def get_timeline(run_id: str, case_id: str) -> CaseTimeline:
 async def create_new_case(payload: NewCaseRequest) -> NewCaseResponse:
     """Create a viewer-owned case manifest and run it in the background."""
 
+    _cleanup_user_generated()
     if payload.retrieve and not allow_retrieval_runs():
         raise HTTPException(status_code=403, detail="retrieval is disabled for this demo")
     if not payload.dry_run and not allow_model_runs():
@@ -213,6 +215,7 @@ def get_artifact(run_id: str, case_id: str, name: str) -> dict:
 def save_trace(run_id: str, case_id: str) -> dict:
     """Persist a trace bundle under viewer/user_generated/traces/."""
 
+    _cleanup_user_generated()
     _guard_run_id(run_id)
     _guard_case_id(case_id)
     timeline = get_timeline(run_id, case_id)
@@ -392,6 +395,8 @@ def _run_new_case_background(
         )
     except Exception as exc:  # noqa: BLE001 - surface failures as trace events.
         _write_new_case_error_trace(run_dir, run_id, case_id, str(exc), loop)
+    finally:
+        _schedule_user_generated_cleanup()
 
 
 def _showcase_trace_enabled(payload: NewCaseRequest) -> bool:
@@ -423,6 +428,43 @@ def _build_harness_config(harness_config_cls: type, *, showcase: bool, max_round
     if showcase and _env_bool("CLINICAL_VIEWER_SHOWCASE_ENSEMBLE", default=False):
         values["use_ensemble"] = True
     return harness_config_cls(**{key: value for key, value in values.items() if key in available})
+
+
+def _user_generated_ttl_seconds() -> int:
+    return max(0, _env_int("CLINICAL_VIEWER_USER_GENERATED_TTL_SECONDS", default=1800))
+
+
+def _schedule_user_generated_cleanup() -> None:
+    ttl = _user_generated_ttl_seconds()
+    if ttl <= 0:
+        return
+    timer = threading.Timer(ttl, _cleanup_user_generated)
+    timer.daemon = True
+    timer.start()
+
+
+def _cleanup_user_generated() -> None:
+    ttl = _user_generated_ttl_seconds()
+    if ttl <= 0:
+        return
+    cutoff = datetime.now(UTC).timestamp() - ttl
+    roots = (
+        user_generated_runs_dir(),
+        user_generated_dir() / "cases",
+        user_generated_dir() / "traces",
+    )
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for entry in root.iterdir():
+            try:
+                if entry.stat().st_mtime < cutoff:
+                    if entry.is_dir():
+                        shutil.rmtree(entry, ignore_errors=True)
+                    else:
+                        entry.unlink(missing_ok=True)
+            except OSError:
+                continue
 
 
 def _write_new_case_error_trace(

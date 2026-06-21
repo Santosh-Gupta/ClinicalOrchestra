@@ -273,6 +273,9 @@ The checked-in `render.yaml` defaults to a locked-down public service:
 - `CLINICAL_VIEWER_ALLOW_MODEL_RUNS=false` blocks model calls.
 - Generated cases, trace exports, and run outputs are written under
   `/data/user_generated` inside the service filesystem.
+- Viewer-generated run/case/trace directories are temporary by default:
+  `CLINICAL_VIEWER_USER_GENERATED_TTL_SECONDS=1800` removes entries older than
+  30 minutes. Set it to `0` to disable cleanup for a private/internal install.
 
 The current public demo experience is intended to run retrieval and model calls
 when you explicitly enable them in Render. It also defaults to a richer
@@ -299,6 +302,7 @@ CLINICAL_VIEWER_SHOWCASE_TRACE=true
 CLINICAL_VIEWER_SHOWCASE_MIN_ROUNDS=3
 CLINICAL_VIEWER_SHOWCASE_PAPER_CONCURRENCY=4
 CLINICAL_VIEWER_SHOWCASE_ENSEMBLE=false
+CLINICAL_VIEWER_USER_GENERATED_TTL_SECONDS=1800
 ```
 
 `CLINICAL_VIEWER_SHOWCASE_TRACE=true` makes non-dry-run viewer submissions use

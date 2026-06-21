@@ -28,6 +28,7 @@ export function EventCard({
   collapseVersion?: number;
 }) {
   const expandable = EXPANDABLE.has(event.type);
+  const displayTitle = eventTitle(event);
   const displaySummary = eventSummary(event);
   // Auto-expand the high-signal terminal events.
   const [open, setOpen] = useState(event.type === "answer" || event.type === "judge");
@@ -54,7 +55,7 @@ export function EventCard({
           <span className="actor-tag" style={{ color: ACTOR_COLOR[event.actor] }}>
             {event.actor}
           </span>
-          <span className={`card-title ${monoTitle ? "mono" : ""}`}>{event.title}</span>
+          <span className={`card-title ${monoTitle ? "mono" : ""}`}>{displayTitle}</span>
           {event.round != null && <span className="chip">r{event.round}</span>}
           {(event.status === "pass" ||
             event.status === "fail" ||
@@ -82,6 +83,15 @@ function eventSummary(event: TraceEvent): string | null {
     if (query) return String(query);
   }
   return event.summary ?? null;
+}
+
+function eventTitle(event: TraceEvent): string {
+  const p = event.payload as Record<string, any>;
+  if (event.type === "tool_call" && p.tool === "pubmed_search") {
+    const query = p.attempted_query ?? p.query;
+    if (query) return `PubMed search · ${String(query)}`;
+  }
+  return event.title;
 }
 
 function EventBody({ event }: { event: TraceEvent }) {
@@ -428,8 +438,8 @@ function ModelCall({ p }: { p: Record<string, any> }) {
         </details>
       )}
       {p.response_text && (
-        <details className="details-block">
-          <summary>Response text</summary>
+        <details className="details-block" open>
+          <summary>Model response text</summary>
           <pre className="code-block">{String(p.response_text)}</pre>
         </details>
       )}
@@ -571,8 +581,8 @@ function ModelResponse({ p }: { p: Record<string, any> }) {
         </details>
       )}
       {p.raw_content && (
-        <details className="details-block">
-          <summary>Raw model text</summary>
+        <details className="details-block" open>
+          <summary>Visible model response</summary>
           <pre className="code-block">{String(p.raw_content)}</pre>
         </details>
       )}

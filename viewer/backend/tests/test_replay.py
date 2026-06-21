@@ -7,7 +7,9 @@ invariants rather than specific cases. Run with: ``pytest`` from viewer/backend.
 from __future__ import annotations
 
 import json
+import os
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -485,6 +487,39 @@ def test_showcase_harness_config_ignores_unsupported_fields(monkeypatch):
     assert config.min_rounds == 3
     assert config.use_paper_extractor is True
     assert not hasattr(config, "use_ensemble")
+
+
+def test_user_generated_cleanup_removes_old_demo_artifacts(tmp_path, monkeypatch):
+    pytest.importorskip("fastapi")
+    from clinical_viewer.app import _cleanup_user_generated
+
+    generated_dir = tmp_path / "viewer-generated"
+    run_dir = generated_dir / "runs" / "old-run"
+    case_dir = generated_dir / "cases" / "old-run"
+    trace_dir = generated_dir / "traces" / "old-trace"
+    fresh_dir = generated_dir / "runs" / "fresh-run"
+    for path in (run_dir, case_dir, trace_dir, fresh_dir):
+        path.mkdir(parents=True)
+        (path / "marker.txt").write_text("x", encoding="utf-8")
+    old_ts = (datetime.now(UTC) - timedelta(hours=2)).timestamp()
+    for path in (run_dir, case_dir, trace_dir):
+        path.touch()
+        os.utime(path, (old_ts, old_ts))
+
+    monkeypatch.setenv("CLINICAL_VIEWER_USER_GENERATED", str(generated_dir))
+    monkeypatch.setenv("CLINICAL_VIEWER_USER_GENERATED_TTL_SECONDS", "60")
+    config_mod.user_generated_dir.cache_clear()
+    config_mod.user_generated_runs_dir.cache_clear()
+    try:
+        _cleanup_user_generated()
+    finally:
+        config_mod.user_generated_dir.cache_clear()
+        config_mod.user_generated_runs_dir.cache_clear()
+
+    assert not run_dir.exists()
+    assert not case_dir.exists()
+    assert not trace_dir.exists()
+    assert fresh_dir.exists()
 
 
 def test_runledger_case_is_discovered_and_replayed(tmp_path, monkeypatch):

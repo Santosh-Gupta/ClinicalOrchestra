@@ -133,6 +133,9 @@ per-type cards, judge verdicts. Works against the existing 60+ runs.
   from one web service.
 - Render deployment works with `/api/health` as the health check and optional
   `/data` disk persistence for user-generated runs/traces.
+- Public/user-generated artifacts are storage-bounded by
+  `CLINICAL_VIEWER_USER_GENERATED_TTL_SECONDS` so demo disks do not fill with
+  visitor submissions.
 - Public UI starts from **New Case**, removes the run/case browser, splits
   retrieval and reasoning into separate lanes, and keeps dynamic working
   indicators visible during long model calls.

@@ -66,7 +66,9 @@ The advanced edition keeps the original reviewer tooling:
   - `/api/live/events`
 - User-generated cases and saved traces live under
   `viewer/user_generated/` locally or `CLINICAL_VIEWER_USER_GENERATED` in
-  hosted deployments.
+  hosted deployments. Public/demo deployments clean old generated run, case,
+  and trace directories after `CLINICAL_VIEWER_USER_GENERATED_TTL_SECONDS`
+  seconds by default.
 
 ## Environment knobs
 
@@ -88,6 +90,9 @@ The advanced edition keeps the original reviewer tooling:
 - `CLINICAL_VIEWER_SHOWCASE_ENSEMBLE=false` leaves the multi-angle ensemble
   opt-in because it adds several model calls and is not an accuracy default.
   It is ignored unless the installed harness version supports `use_ensemble`.
+- `CLINICAL_VIEWER_USER_GENERATED_TTL_SECONDS=1800` bounds public-demo disk
+  usage by deleting old generated runs/cases/traces. Use `0` only for private
+  installs that should retain artifacts.
 
 ## Suggested review focus
 
