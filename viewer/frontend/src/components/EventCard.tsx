@@ -28,6 +28,7 @@ export function EventCard({
   collapseVersion?: number;
 }) {
   const expandable = EXPANDABLE.has(event.type);
+  const displaySummary = eventSummary(event);
   // Auto-expand the high-signal terminal events.
   const [open, setOpen] = useState(event.type === "answer" || event.type === "judge");
   const monoTitle = event.type === "query_generated" || event.type === "answer";
@@ -60,7 +61,7 @@ export function EventCard({
             event.status === "warn" ||
             event.status === "error") && <Badge status={event.status} />}
         </div>
-        {event.summary && !open && <div className="card-summary">{event.summary}</div>}
+        {displaySummary && !open && <div className="card-summary">{displaySummary}</div>}
         {open && (
           <div className="card-body">
             <EventBody event={event} />
@@ -70,6 +71,17 @@ export function EventCard({
       </div>
     </div>
   );
+}
+
+function eventSummary(event: TraceEvent): string | null {
+  const p = event.payload as Record<string, any>;
+  if (event.type === "tool_call" && p.tool === "pubmed_search") {
+    const query = p.attempted_query ?? p.query;
+    const returned = p.returned_count != null ? `${p.returned_count} returned` : null;
+    if (query && returned) return `${returned} · ${String(query)}`;
+    if (query) return String(query);
+  }
+  return event.summary ?? null;
 }
 
 function EventBody({ event }: { event: TraceEvent }) {
@@ -249,6 +261,7 @@ function RawEventDetails({ event }: { event: TraceEvent }) {
 
 function ToolCall({ p }: { p: Record<string, any> }) {
   const parameters = p.parameters ?? {};
+  const queryText = p.attempted_query ?? p.query;
   const pmids: string[] = Array.isArray(p.pmids) ? p.pmids : [];
   const pmcids: string[] = Array.isArray(p.pmcids) ? p.pmcids : [];
   const outputIds: string[] = Array.isArray(p.output_evidence_ids) ? p.output_evidence_ids : [];
@@ -260,6 +273,12 @@ function ToolCall({ p }: { p: Record<string, any> }) {
         <dd>{p.tool ?? "—"}</dd>
         <dt>query id</dt>
         <dd>{p.query_id ?? "—"}</dd>
+        {queryText && (
+          <>
+            <dt>query</dt>
+            <dd>{String(queryText)}</dd>
+          </>
+        )}
         <dt>attempt</dt>
         <dd>{p.attempt ?? "—"}</dd>
         <dt>limit</dt>
@@ -279,7 +298,7 @@ function ToolCall({ p }: { p: Record<string, any> }) {
           </>
         )}
       </dl>
-      {p.attempted_query && <p className="snippet">{String(p.attempted_query)}</p>}
+      {queryText && <p className="snippet">{String(queryText)}</p>}
       {p.query_translation && (
         <details className="details-block">
           <summary>PubMed translation</summary>
@@ -659,11 +678,18 @@ function Answer({ p }: { p: Record<string, any> }) {
   const answer = isRecord(p.answer) ? p.answer : {};
   const papers: any[] = Array.isArray(p.key_papers) ? p.key_papers : [];
   const discs: any[] = Array.isArray(p.discriminator_summary) ? p.discriminator_summary : [];
-  const differential: any[] = Array.isArray(p.differential)
-    ? p.differential
-    : Array.isArray(answer.differential)
-      ? answer.differential
+  const rankedDifferential: any[] = Array.isArray(p.ranked_differential)
+    ? p.ranked_differential
+    : Array.isArray(answer.ranked_differential)
+      ? answer.ranked_differential
       : [];
+  const differential: any[] = rankedDifferential.length > 0
+    ? rankedDifferential
+    : Array.isArray(p.differential)
+      ? p.differential
+      : Array.isArray(answer.differential)
+        ? answer.differential
+        : [];
   const citations: any[] = Array.isArray(p.citations)
     ? p.citations
     : Array.isArray(answer.citations)
@@ -703,14 +729,20 @@ function Answer({ p }: { p: Record<string, any> }) {
       {differential.length > 0 && (
         <>
           <p className="snippet" style={{ color: "var(--text-faint)", marginTop: 12 }}>
-            DIFFERENTIAL
+            {rankedDifferential.length > 0 ? "RANKED DIFFERENTIAL (TOP 5)" : "DIFFERENTIAL"}
           </p>
-          {differential.slice(0, 8).map((candidate, i) => (
+          {differential.slice(0, rankedDifferential.length > 0 ? 5 : 8).map((candidate, i) => (
             <div className="disc" key={i}>
               <div className="d-name">
-                {candidate.diagnosis ?? candidate.name ?? `candidate ${i + 1}`}
+                {candidate.rank ?? i + 1}. {candidate.diagnosis ?? candidate.name ?? `candidate ${i + 1}`}
               </div>
               {candidate.confidence && <div className="d-dir">confidence: {candidate.confidence}</div>}
+              {Array.isArray(candidate.supporting_features) && candidate.supporting_features.length > 0 && (
+                <div className="d-dir">supports: {candidate.supporting_features.slice(0, 3).join("; ")}</div>
+              )}
+              {Array.isArray(candidate.refuting_features) && candidate.refuting_features.length > 0 && (
+                <div className="d-dir">refutes: {candidate.refuting_features.slice(0, 3).join("; ")}</div>
+              )}
               {Array.isArray(candidate.supporting_evidence) && candidate.supporting_evidence.length > 0 && (
                 <div className="d-dir">supports: {candidate.supporting_evidence.slice(0, 3).join("; ")}</div>
               )}

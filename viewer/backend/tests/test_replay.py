@@ -126,6 +126,32 @@ def test_replay_reconstructs_pubmed_tool_calls(tmp_path):
     assert {artifact.name for artifact in tl.artifacts} == {"queries", "evidence"}
 
 
+def test_replay_surfaces_ranked_differential(tmp_path):
+    run_dir = tmp_path / "run-1"
+    run_dir.mkdir()
+    case_id = "case-1"
+    (run_dir / f"{case_id}.retrieval_response.json").write_text(
+        json.dumps(
+            {
+                "content": {
+                    "final_diagnosis": "Anti-NMDA receptor encephalitis",
+                    "ranked_differential": [
+                        {"rank": 1, "diagnosis": "Anti-NMDA receptor encephalitis"},
+                        {"rank": 2, "diagnosis": "Neuropsychiatric lupus"},
+                    ],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    tl = build_case_timeline(run_dir, "run-1", case_id)
+    answer = next(event for event in tl.events if event.type == EventType.ANSWER)
+
+    assert answer.payload["ranked_differential"][0]["diagnosis"] == "Anti-NMDA receptor encephalitis"
+    assert answer.payload["ranked_differential"][1]["rank"] == 2
+
+
 def test_path_traversal_rejected():
     with pytest.raises((ValueError, FileNotFoundError)):
         runs_mod.list_cases("../etc")

@@ -351,6 +351,7 @@ def build_case_timeline(run_dir: Path, run_id: str, case_id: str) -> CaseTimelin
                 "etiology": content.get("etiology"),
                 "confidence": content.get("confidence"),
                 "recommended_next_step": content.get("recommended_next_step"),
+                "ranked_differential": content.get("ranked_differential"),
                 "discriminator_summary": content.get("discriminator_summary"),
                 "key_papers": content.get("key_papers"),
                 "report_markdown": report,
