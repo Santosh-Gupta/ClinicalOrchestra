@@ -77,10 +77,26 @@ export function EventCard({
 function eventSummary(event: TraceEvent): string | null {
   const p = event.payload as Record<string, any>;
   if (event.type === "tool_call" && p.tool === "pubmed_search") {
-    const query = p.attempted_query ?? p.query;
     const returned = p.returned_count != null ? `${p.returned_count} returned` : null;
-    if (query && returned) return `${returned} · ${String(query)}`;
-    if (query) return String(query);
+    const attempt = p.attempt && p.attempt !== "initial" ? String(p.attempt) : null;
+    const reason = p.reason ? String(p.reason).replace(/_/g, " ") : null;
+    return [returned, attempt, reason].filter(Boolean).join(" · ") || event.summary || null;
+  }
+  if (event.type === "model_call") {
+    const stage = String(p.stage ?? "");
+    if (stage === "paper_screening") {
+      const relevant = isRecord(p.parsed_json) && typeof p.parsed_json.relevant === "boolean"
+        ? p.parsed_json.relevant
+        : null;
+      const excerpt = isRecord(p.parsed_json) && typeof p.parsed_json.relevant_excerpt === "string"
+        ? p.parsed_json.relevant_excerpt
+        : null;
+      if (excerpt) return `${relevant === false ? "not relevant" : "relevant"} · ${excerpt}`;
+      if (relevant !== null) return relevant ? "relevant to the case" : "not relevant to the case";
+    }
+    if (stage === "initial_clinical_assessment" && p.response_text) {
+      return truncateInline(String(p.response_text), 180);
+    }
   }
   return event.summary ?? null;
 }
@@ -91,7 +107,54 @@ function eventTitle(event: TraceEvent): string {
     const query = p.attempted_query ?? p.query;
     if (query) return `PubMed search · ${String(query)}`;
   }
+  if (event.type === "tool_call" && p.tool === "pmc_fetch") {
+    const pmcids = Array.isArray(p.pmcids) ? p.pmcids.filter(Boolean).slice(0, 3).join(", ") : "";
+    return pmcids ? `PMC full-text fetch · ${pmcids}` : "PMC full-text fetch";
+  }
+  if (event.type === "model_call") {
+    return modelCallTitle(event.title, p, event.round);
+  }
   return event.title;
+}
+
+function modelCallTitle(fallback: string, p: Record<string, any>, round: number | null): string {
+  const stage = String(p.stage ?? "");
+  const failed = Boolean(p.error);
+  if (stage === "paper_screening") {
+    const paper = typeof p.paper_title === "string" && p.paper_title.trim()
+      ? p.paper_title.trim()
+      : typeof p.pmid === "string" && p.pmid.trim()
+        ? `PMID ${p.pmid.trim()}`
+        : typeof p.evidence_id === "string" && p.evidence_id.trim()
+          ? p.evidence_id.trim()
+          : "paper";
+    return `${failed ? "Paper screening failed" : "Paper screening"} · ${truncateInline(paper, 110)}`;
+  }
+  if (stage === "initial_clinical_assessment") {
+    return failed ? "Initial differential and search plan failed" : "Initial differential and search plan";
+  }
+  if (stage === "evidence_distillation") {
+    const roundLabel = round != null ? `round ${round}` : "retrieval round";
+    return failed ? `Evidence synthesis failed · ${roundLabel}` : `Evidence synthesis · ${roundLabel}`;
+  }
+  if (stage === "rerank_differential") {
+    return failed ? "Differential rerank failed" : "Differential rerank";
+  }
+  if (stage === "final_answer") {
+    const sample = /sample\s+\d+/i.exec(fallback)?.[0];
+    return failed
+      ? `Final diagnosis generation failed${sample ? ` · ${sample}` : ""}`
+      : `Final diagnosis generation${sample ? ` · ${sample}` : ""}`;
+  }
+  if (stage === "judge_equivalence") {
+    return failed ? "Judge equivalence check failed" : "Judge equivalence check";
+  }
+  return fallback;
+}
+
+function truncateInline(value: string, max: number): string {
+  const cleaned = value.replace(/\s+/g, " ").trim();
+  return cleaned.length > max ? `${cleaned.slice(0, max - 3)}...` : cleaned;
 }
 
 function EventBody({ event }: { event: TraceEvent }) {
