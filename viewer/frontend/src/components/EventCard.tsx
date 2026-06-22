@@ -492,9 +492,10 @@ function ModelCall({ p }: { p: Record<string, any> }) {
             <dt>error</dt>
             <dd>{p.error}</dd>
           </>
-        )}
+      )}
       </dl>
       {p.paper_title && <p className="snippet">{p.paper_title}</p>}
+      {isRecord(p.parsed_json) && <PrettyPayload p={p.parsed_json} />}
       {p.prompt && (
         <details className="details-block">
           <summary>Prompt</summary>
@@ -592,6 +593,15 @@ function PromptBuilt({ p }: { p: Record<string, any> }) {
       )}
 
       {synthesis.length > 0 && (
+        <>
+          <SectionLabel>EVIDENCE SYNTHESIS</SectionLabel>
+          {synthesis.slice(0, 5).map((item, i) => (
+            <SynthesisPacket key={i} item={item} />
+          ))}
+        </>
+      )}
+
+      {synthesis.length > 0 && (
         <details className="details-block">
           <summary>Evidence synthesis packet ({synthesis.length})</summary>
           <pre className="code-block">{JSON.stringify(synthesis, null, 2)}</pre>
@@ -644,6 +654,7 @@ function ModelResponse({ p }: { p: Record<string, any> }) {
           <pre className="code-block">{JSON.stringify(p.self_consistency, null, 2)}</pre>
         </details>
       )}
+      {isRecord(p.content) && <PrettyPayload p={p.content} />}
       {p.content && (
         <details className="details-block" open>
           <summary>Parsed content</summary>
@@ -695,6 +706,152 @@ function Synthesis({ p }: { p: Record<string, any> }) {
             • {n}
           </p>
         ))}
+      <PrettyPayload p={p} skipKeys={new Set(["useful_discriminators", "notes"])} />
+    </>
+  );
+}
+
+function PrettyPayload({
+  p,
+  skipKeys = new Set(),
+}: {
+  p: Record<string, any>;
+  skipKeys?: Set<string>;
+}) {
+  const usefulDiscriminators = arrayOfRecords(p.useful_discriminators);
+  const rankedDifferential = arrayOfRecords(p.ranked_differential);
+  const differential = rankedDifferential.length > 0 ? rankedDifferential : arrayOfRecords(p.differential);
+  const citations = arrayOfRecords(p.citations);
+  const keyPapers = arrayOfRecords(p.key_papers);
+  const uncertainty = arrayOfStrings(p.remaining_uncertainty);
+  const followups = arrayOfStrings(p.additional_queries);
+  const fullText = arrayOfStrings(p.need_full_text_evidence_ids);
+  const anchorRisks = arrayOfStrings(p.anchor_risks);
+  const notes = skipKeys.has("notes") ? [] : arrayOfStrings(p.notes);
+  const tests = arrayOfStrings(p.recommended_next_tests);
+  const summaryRows = [
+    ["resolved", p.differential_resolved],
+    ["more retrieval", p.more_retrieval_needed],
+    ["confidence", p.confidence],
+    ["final diagnosis", p.final_diagnosis ?? p.diagnosis],
+    ["next step", p.recommended_next_step],
+    ["new entity", p.new_entity],
+    ["relevant", p.relevant],
+  ].filter(([, value]) => value !== undefined && value !== null && value !== "");
+  const showDiscriminators = !skipKeys.has("useful_discriminators") && usefulDiscriminators.length > 0;
+  const hasReadable =
+    summaryRows.length > 0 ||
+    showDiscriminators ||
+    differential.length > 0 ||
+    citations.length > 0 ||
+    keyPapers.length > 0 ||
+    uncertainty.length > 0 ||
+    followups.length > 0 ||
+    fullText.length > 0 ||
+    anchorRisks.length > 0 ||
+    notes.length > 0 ||
+    tests.length > 0 ||
+    typeof p.relevant_excerpt === "string";
+
+  if (!hasReadable) return null;
+
+  return (
+    <>
+      <SectionLabel>READABLE SUMMARY</SectionLabel>
+      {summaryRows.length > 0 && (
+        <dl className="kv">
+          {summaryRows.map(([label, value]) => (
+            <FragmentPair key={String(label)} label={String(label)} value={String(value)} />
+          ))}
+        </dl>
+      )}
+      {typeof p.relevant_excerpt === "string" && <p className="snippet">{p.relevant_excerpt}</p>}
+      {differential.length > 0 && <PrettyDifferential items={differential} />}
+      {showDiscriminators && <PrettyDiscriminators items={usefulDiscriminators} />}
+      {uncertainty.length > 0 && <DetailList title="REMAINING UNCERTAINTY" items={uncertainty.slice(0, 8)} />}
+      {followups.length > 0 && <DetailList title="FOLLOW-UP SEARCHES" items={followups.slice(0, 8)} />}
+      {fullText.length > 0 && <DetailList title="FULL TEXT NEEDED" items={fullText.slice(0, 8)} />}
+      {anchorRisks.length > 0 && <DetailList title="ANCHORING RISKS" items={anchorRisks.slice(0, 8)} />}
+      {tests.length > 0 && <DetailList title="RECOMMENDED NEXT TESTS" items={tests.slice(0, 8)} />}
+      {notes.length > 0 && <DetailList title="NOTES" items={notes.slice(0, 8)} />}
+      {keyPapers.length > 0 && <PrettyPapers title="KEY PAPERS" items={keyPapers.slice(0, 8)} />}
+      {citations.length > 0 && <PrettyPapers title="CITATIONS" items={citations.slice(0, 8)} />}
+    </>
+  );
+}
+
+function SynthesisPacket({ item }: { item: any }) {
+  if (!isRecord(item)) {
+    return <p className="snippet">{String(item)}</p>;
+  }
+  return (
+    <div className="disc">
+      <div className="d-name">Round {String(item.synthesis_round ?? "?")}</div>
+      <div className="d-dir">
+        resolved: {String(item.differential_resolved)} · more retrieval: {String(item.more_retrieval_needed)}
+      </div>
+      <PrettyPayload p={item} skipKeys={new Set(["notes"])} />
+    </div>
+  );
+}
+
+function PrettyDifferential({ items }: { items: Record<string, any>[] }) {
+  return (
+    <>
+      <SectionLabel>DIFFERENTIAL</SectionLabel>
+      {items.slice(0, 8).map((item, i) => (
+        <div className="disc" key={i}>
+          <div className="d-name">
+            {item.rank ?? i + 1}. {item.diagnosis ?? item.name ?? item.entity ?? `candidate ${i + 1}`}
+          </div>
+          {item.confidence && <div className="d-dir">confidence: {item.confidence}</div>}
+          {Array.isArray(item.supporting_features) && item.supporting_features.length > 0 && (
+            <div className="d-dir">supports: {item.supporting_features.slice(0, 3).join("; ")}</div>
+          )}
+          {Array.isArray(item.refuting_features) && item.refuting_features.length > 0 && (
+            <div className="d-dir">refutes: {item.refuting_features.slice(0, 3).join("; ")}</div>
+          )}
+        </div>
+      ))}
+    </>
+  );
+}
+
+function PrettyDiscriminators({ items }: { items: Record<string, any>[] }) {
+  return (
+    <>
+      <SectionLabel>DISCRIMINATORS</SectionLabel>
+      {items.slice(0, 8).map((item, i) => (
+        <div className="disc" key={i}>
+          <div className="d-name">
+            {item.discriminator ?? item.entity ?? item.evidence_id ?? `discriminator ${i + 1}`}
+          </div>
+          {item.required_test_or_marker && <div className="d-dir">test: {item.required_test_or_marker}</div>}
+          {Array.isArray(item.supports) && item.supports.length > 0 && (
+            <div className="d-dir">supports: {item.supports.slice(0, 3).join("; ")}</div>
+          )}
+          {Array.isArray(item.refutes) && item.refutes.length > 0 && (
+            <div className="d-dir">refutes: {item.refutes.slice(0, 3).join("; ")}</div>
+          )}
+          {item.supports_or_refutes && <div className="d-dir">{item.supports_or_refutes}</div>}
+          {item.direction && <div className="d-dir">{item.direction}</div>}
+        </div>
+      ))}
+    </>
+  );
+}
+
+function PrettyPapers({ title, items }: { title: string; items: Record<string, any>[] }) {
+  return (
+    <>
+      <SectionLabel>{title}</SectionLabel>
+      {items.map((item, i) => (
+        <div className="disc" key={i} style={{ borderColor: "var(--diagnostician)" }}>
+          <div className="d-name">{item.title ?? item.evidence_id ?? item.pmid ?? `paper ${i + 1}`}</div>
+          {item.contribution && <div className="d-dir">{item.contribution}</div>}
+          {item.pmid && <div className="d-dir">PMID {item.pmid}</div>}
+        </div>
+      ))}
     </>
   );
 }
@@ -895,4 +1052,9 @@ function firstString(value: unknown): string | null {
 function arrayOfStrings(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === "string");
+}
+
+function arrayOfRecords(value: unknown): Record<string, any>[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is Record<string, any> => isRecord(item));
 }
