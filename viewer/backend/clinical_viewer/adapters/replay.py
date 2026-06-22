@@ -193,7 +193,7 @@ def build_case_timeline(run_dir: Path, run_id: str, case_id: str) -> CaseTimelin
                 b.add(
                     EventType.TOOL_CALL,
                     "retriever",
-                    f"PubMed search · {q.get('query_id') or 'query'}",
+                    f"PubMed search · {_short_event_text(q.get('query') or q.get('query_id') or 'query')}",
                     round=rnd,
                     summary=f"pubmed_search · {len(linked_evidence)} returned",
                     payload={
@@ -496,7 +496,7 @@ def _build_ledger_timeline(run_dir: Path, run_id: str, case_id: str) -> CaseTime
             b.add(
                 EventType.TOOL_CALL,
                 "retriever",
-                f"PubMed search · {row.get('input_ids', ['query'])[0]}",
+                f"PubMed search · {_short_event_text(details.get('query') or row.get('input_ids', ['query'])[0])}",
                 summary=f"pubmed_search · {returned if returned is not None else 0} returned",
                 payload={
                     **_ledger_payload(row, details),
@@ -848,6 +848,11 @@ def _evidence_summary(ev: dict[str, Any]) -> str | None:
 
 def _pubmed_url(pmid: str | None) -> str | None:
     return f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if pmid else None
+
+
+def _short_event_text(value: Any, max_chars: int = 110) -> str:
+    text = " ".join(str(value).split())
+    return text if len(text) <= max_chars else text[: max_chars - 3].rstrip() + "..."
 
 
 def _truncate(text: str, limit: int) -> str:

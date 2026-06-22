@@ -2473,7 +2473,7 @@ def _record_pubmed_tool_call(
     recorder(
         {
             "actor": "retriever",
-            "title": f"PubMed search · {query.query_id}",
+            "title": f"PubMed search · {_short_event_text(attempted_query)}",
             "round": query.round_index,
             "tool": "pubmed_search",
             "source_api": "pubmed",
@@ -2494,6 +2494,13 @@ def _record_pubmed_tool_call(
             "articles": article_summaries,
         }
     )
+
+
+def _short_event_text(value: str, max_chars: int = 110) -> str:
+    cleaned = " ".join(str(value).split())
+    if len(cleaned) <= max_chars:
+        return cleaned
+    return f"{cleaned[: max_chars - 3]}..."
 
 
 def _record_pmc_fetch_tool_call(

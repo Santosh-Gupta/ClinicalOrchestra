@@ -117,7 +117,15 @@ class OpenAICompatibleChatClient:
         ceiling = min(self.backoff_base_seconds * (2**attempt), self.backoff_cap_seconds)
         return random.uniform(0.0, ceiling)
 
-    def chat(self, *, prompt: str, temperature: float = 0.0, max_tokens: int = 4096) -> ChatCompletionResult:
+    def chat(
+        self,
+        *,
+        prompt: str,
+        temperature: float = 0.0,
+        max_tokens: int = 4096,
+        timeout_seconds: float | None = None,
+        max_retries: int | None = None,
+    ) -> ChatCompletionResult:
         url = f"{self.base_url}/chat/completions"
         payload = {
             "model": self.model,
@@ -148,16 +156,18 @@ class OpenAICompatibleChatClient:
         token_estimate = _estimate_tokens(prompt, max_tokens)
         started = time.monotonic()
         raw: dict[str, Any] | None = None
-        for attempt in range(self.max_retries + 1):
+        request_timeout = self.timeout_seconds if timeout_seconds is None else timeout_seconds
+        request_retries = self.max_retries if max_retries is None else max_retries
+        for attempt in range(request_retries + 1):
             # Proactively wait for RPM/TPM headroom before sending. Each retry is a real request to
             # the provider, so it must re-acquire (no-op under the DeepSeek default).
             self.rate_limiter.acquire(tokens=token_estimate)
             try:
-                with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+                with urllib.request.urlopen(request, timeout=request_timeout) as response:
                     raw = json.loads(response.read().decode("utf-8"))
                 break
             except urllib.error.HTTPError as exc:
-                if exc.code in _RETRYABLE_STATUS and attempt < self.max_retries:
+                if exc.code in _RETRYABLE_STATUS and attempt < request_retries:
                     time.sleep(self._retry_delay(attempt, exc.headers.get("Retry-After")))
                     continue
                 body = exc.read().decode("utf-8", errors="replace")
@@ -165,7 +175,7 @@ class OpenAICompatibleChatClient:
             except (urllib.error.URLError, TimeoutError, http.client.HTTPException, OSError) as exc:
                 # Transient connection faults (incl. RemoteDisconnected / reset sockets) are common
                 # under concurrency; retry with backoff before giving up.
-                if attempt < self.max_retries:
+                if attempt < request_retries:
                     time.sleep(self._retry_delay(attempt, None))
                     continue
                 raise RuntimeError(f"model API request failed after {attempt + 1} attempts: {exc}") from exc

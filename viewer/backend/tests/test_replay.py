@@ -115,7 +115,7 @@ def test_replay_reconstructs_pubmed_tool_calls(tmp_path):
     pmc_tool = next(event for event in tool_events if event.payload["tool"] == "pmc_fetch")
     evidence_event = next(event for event in tl.events if event.type == EventType.EVIDENCE_RETRIEVED)
 
-    assert tool.title == "PubMed search · r1q1"
+    assert tool.title == "PubMed search · microascus sinusitis"
     assert tool.payload["tool"] == "pubmed_search"
     assert tool.payload["pmids"] == ["123"]
     assert tool.payload["output_evidence_ids"] == ["pubmed:123"]
