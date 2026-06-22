@@ -15,7 +15,6 @@ follow-up queries that feed the standing query-strategist loop.
 from __future__ import annotations
 
 import json
-import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -102,16 +101,8 @@ def analyze_paper(
         case_summary=case_summary, differential_context=differential_context, paper=paper,
         clinical_reasoning=clinical_reasoning,
     )
-    timeout_seconds = float(os.getenv("PAPER_SCREENING_TIMEOUT_SECONDS", "30"))
-    max_retries_override = int(os.getenv("PAPER_SCREENING_MAX_RETRIES", "1"))
     try:
-        result = client.chat(
-            prompt=prompt,
-            temperature=0.0,
-            max_tokens=max_tokens,
-            timeout_seconds=timeout_seconds,
-            max_retries=max_retries_override,
-        )
+        result = client.chat(prompt=prompt, temperature=0.0, max_tokens=max_tokens)
         payload = parse_json_object(result.content)
     except Exception as exc:  # noqa: BLE001 - one bad paper must not sink the screen.
         _record_model_call(
@@ -126,8 +117,6 @@ def analyze_paper(
             error=str(exc),
             max_tokens=max_tokens,
             temperature=0.0,
-            timeout_seconds=timeout_seconds,
-            max_retries=max_retries_override,
         )
         return PaperAnalysis(evidence_id=evidence_id, pmid=pmid, title=title, relevant=False, error=str(exc))
 
@@ -150,8 +139,6 @@ def analyze_paper(
         parsed=payload,
         max_tokens=max_tokens,
         temperature=0.0,
-        timeout_seconds=timeout_seconds,
-        max_retries=max_retries_override,
     )
     return PaperAnalysis(
         evidence_id=evidence_id,
@@ -223,8 +210,6 @@ def _record_model_call(
     error: str | None = None,
     max_tokens: int | None = None,
     temperature: float | None = None,
-    timeout_seconds: float | None = None,
-    max_retries: int | None = None,
 ) -> None:
     if recorder is None:
         return
@@ -246,8 +231,6 @@ def _record_model_call(
             "error": error,
             "max_tokens": max_tokens,
             "temperature": temperature,
-            "timeout_seconds": timeout_seconds,
-            "max_retries": max_retries,
             "evidence_id": evidence_id,
             "pmid": pmid,
             "paper_title": paper_title,
