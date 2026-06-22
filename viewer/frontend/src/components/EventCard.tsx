@@ -104,8 +104,8 @@ function eventSummary(event: TraceEvent): string | null {
 function eventTitle(event: TraceEvent): string {
   const p = event.payload as Record<string, any>;
   if (event.type === "tool_call" && p.tool === "pubmed_search") {
-    const query = p.attempted_query ?? p.query;
-    if (query) return `PubMed search · ${String(query)}`;
+    const exactQuery = p.query_translation ?? p.attempted_query ?? p.query;
+    if (exactQuery) return `PubMed search · ${truncateInline(String(exactQuery), 160)}`;
   }
   if (event.type === "tool_call" && p.tool === "pmc_fetch") {
     const pmcids = Array.isArray(p.pmcids) ? p.pmcids.filter(Boolean).slice(0, 3).join(", ") : "";
@@ -335,6 +335,7 @@ function RawEventDetails({ event }: { event: TraceEvent }) {
 function ToolCall({ p }: { p: Record<string, any> }) {
   const parameters = p.parameters ?? {};
   const queryText = p.attempted_query ?? p.query;
+  const translatedQuery = p.query_translation ? String(p.query_translation) : null;
   const pmids: string[] = Array.isArray(p.pmids) ? p.pmids : [];
   const pmcids: string[] = Array.isArray(p.pmcids) ? p.pmcids : [];
   const outputIds: string[] = Array.isArray(p.output_evidence_ids) ? p.output_evidence_ids : [];
@@ -348,8 +349,14 @@ function ToolCall({ p }: { p: Record<string, any> }) {
         <dd>{p.query_id ?? "—"}</dd>
         {queryText && (
           <>
-            <dt>query</dt>
+            <dt>submitted query</dt>
             <dd>{String(queryText)}</dd>
+          </>
+        )}
+        {translatedQuery && (
+          <>
+            <dt>PubMed query</dt>
+            <dd>{translatedQuery}</dd>
           </>
         )}
         <dt>attempt</dt>
@@ -372,10 +379,10 @@ function ToolCall({ p }: { p: Record<string, any> }) {
         )}
       </dl>
       {queryText && <p className="snippet">{String(queryText)}</p>}
-      {p.query_translation && (
+      {translatedQuery && (
         <details className="details-block">
           <summary>PubMed translation</summary>
-          <pre className="code-block">{String(p.query_translation)}</pre>
+          <pre className="code-block">{translatedQuery}</pre>
         </details>
       )}
       {pmids.length > 0 && <DetailList title="PMIDS" items={pmids.slice(0, 20)} />}

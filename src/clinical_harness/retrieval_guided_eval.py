@@ -2473,7 +2473,7 @@ def _record_pubmed_tool_call(
     recorder(
         {
             "actor": "retriever",
-            "title": f"PubMed search · {_short_event_text(attempted_query)}",
+            "title": f"PubMed search · {_short_event_text(result.get('query_translation') or attempted_query)}",
             "round": query.round_index,
             "tool": "pubmed_search",
             "source_api": "pubmed",
