@@ -85,6 +85,14 @@ function eventSummary(event: TraceEvent): string | null {
   if (event.type === "model_call") {
     const stage = String(p.stage ?? "");
     if (stage === "paper_screening") {
+      if (p.recovered_from_error) {
+        const attempt = p.attempt ? `attempt ${p.attempt}` : "retry";
+        return `fixed after ${attempt}`;
+      }
+      if (p.retry_will_continue) {
+        const attempt = p.attempt && p.max_attempts ? `attempt ${p.attempt}/${p.max_attempts}` : "retrying";
+        return `retrying · ${attempt} · ${String(p.error ?? "temporary failure")}`;
+      }
       const relevant = isRecord(p.parsed_json) && typeof p.parsed_json.relevant === "boolean"
         ? p.parsed_json.relevant
         : null;
@@ -128,7 +136,14 @@ function modelCallTitle(fallback: string, p: Record<string, any>, round: number 
         : typeof p.evidence_id === "string" && p.evidence_id.trim()
           ? p.evidence_id.trim()
           : "paper";
-    return `${failed ? "Paper screening failed" : "Paper screening"} · ${truncateInline(paper, 110)}`;
+    const prefix = p.recovered_from_error
+      ? "Paper screening fixed"
+      : p.retry_will_continue
+        ? "Paper screening retrying"
+        : failed
+          ? "Paper screening failed"
+          : "Paper screening";
+    return `${prefix} · ${truncateInline(paper, 110)}`;
   }
   if (stage === "initial_clinical_assessment") {
     return failed ? "Initial differential and search plan failed" : "Initial differential and search plan";
@@ -463,6 +478,27 @@ function ModelCall({ p }: { p: Record<string, any> }) {
         <dd>{p.max_tokens ?? "—"}</dd>
         <dt>temperature</dt>
         <dd>{p.temperature ?? "—"}</dd>
+        {p.attempt && (
+          <>
+            <dt>attempt</dt>
+            <dd>
+              {p.attempt}
+              {p.max_attempts ? ` / ${p.max_attempts}` : ""}
+            </dd>
+          </>
+        )}
+        {p.retry_will_continue && (
+          <>
+            <dt>retry status</dt>
+            <dd>retrying automatically</dd>
+          </>
+        )}
+        {p.recovered_from_error && (
+          <>
+            <dt>retry status</dt>
+            <dd>fixed after retry</dd>
+          </>
+        )}
         {p.evidence_id && (
           <>
             <dt>evidence id</dt>

@@ -20,6 +20,8 @@ class _StubClient:
         item = self._payloads.pop(0)
         if isinstance(item, Exception):
             raise item
+        if isinstance(item, str):
+            return _Result(content=item)
         return _Result(content=json.dumps(item))
 
 
@@ -73,11 +75,33 @@ class PaperAnalysisTests(unittest.TestCase):
         self.assertEqual(kept[0].evidence_id, "a")
 
     def test_error_in_one_paper_is_isolated(self) -> None:
-        client = _StubClient([RuntimeError("boom")])
+        client = _StubClient([RuntimeError("boom"), RuntimeError("boom"), RuntimeError("boom")])
         a = analyze_paper(client, paper={"evidence_id": "x", "pmid": "9", "title": "t"},
                           case_summary="c", differential_context="d")
         self.assertFalse(a.relevant)
         self.assertIn("boom", a.error)
+
+    def test_paper_screening_retries_bad_model_json(self) -> None:
+        calls = []
+        client = _StubClient([
+            "",
+            {"relevant": True, "relevant_excerpt": "fixed on retry", "discriminators": ["marker"]},
+        ])
+        a = analyze_paper(
+            client,
+            paper={"evidence_id": "x", "pmid": "9", "title": "t"},
+            case_summary="c",
+            differential_context="d",
+            model_call_recorder=calls.append,
+        )
+
+        self.assertTrue(a.relevant)
+        self.assertEqual(a.relevant_excerpt, "fixed on retry")
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0]["status"], "warn")
+        self.assertTrue(calls[0]["retry_will_continue"])
+        self.assertTrue(calls[1]["recovered_from_error"])
+        self.assertEqual(calls[1]["attempt"], 2)
 
     def test_prompt_includes_state_and_strictness(self) -> None:
         p = build_paper_analysis_prompt(case_summary="CS", differential_context="DIFF",

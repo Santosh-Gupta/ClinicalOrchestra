@@ -751,7 +751,7 @@ def run_retrieval_guided_manifest_eval(
             actor = str(payload.pop("actor", "system"))
             title = str(payload.pop("title", "Model call"))
             round_value = payload.pop("round", None)
-            status = "error" if payload.get("error") else "ok"
+            status = str(payload.pop("status", "")) or ("error" if payload.get("error") else "ok")
             trace.emit(
                 "model_call",
                 actor,

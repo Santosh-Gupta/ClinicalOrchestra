@@ -15,6 +15,8 @@ follow-up queries that feed the standing query-strategist loop.
 from __future__ import annotations
 
 import json
+import os
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -101,24 +103,49 @@ def analyze_paper(
         case_summary=case_summary, differential_context=differential_context, paper=paper,
         clinical_reasoning=clinical_reasoning,
     )
-    try:
-        result = client.chat(prompt=prompt, temperature=0.0, max_tokens=max_tokens)
-        payload = parse_json_object(result.content)
-    except Exception as exc:  # noqa: BLE001 - one bad paper must not sink the screen.
-        _record_model_call(
-            model_call_recorder,
-            stage="paper_screening",
-            actor="retriever",
-            title=f"Paper screening failed · {evidence_id}",
-            prompt=prompt,
-            evidence_id=evidence_id,
-            pmid=pmid,
-            paper_title=title,
-            error=str(exc),
-            max_tokens=max_tokens,
-            temperature=0.0,
-        )
-        return PaperAnalysis(evidence_id=evidence_id, pmid=pmid, title=title, relevant=False, error=str(exc))
+    max_attempts = max(1, int(os.getenv("PAPER_SCREENING_MAX_ATTEMPTS", "3")))
+    retry_errors: list[str] = []
+    result = None
+    payload: dict[str, Any] | None = None
+    successful_attempt = 1
+    for attempt in range(1, max_attempts + 1):
+        try:
+            result = client.chat(prompt=prompt, temperature=0.0, max_tokens=max_tokens)
+            payload = parse_json_object(result.content)
+            successful_attempt = attempt
+            break
+        except Exception as exc:  # noqa: BLE001 - one bad attempt should not sink the paper.
+            retry_errors.append(str(exc))
+            retrying = attempt < max_attempts
+            _record_model_call(
+                model_call_recorder,
+                stage="paper_screening",
+                actor="retriever",
+                title=(
+                    f"Paper screening retrying · {evidence_id}"
+                    if retrying
+                    else f"Paper screening failed · {evidence_id}"
+                ),
+                prompt=prompt,
+                evidence_id=evidence_id,
+                pmid=pmid,
+                paper_title=title,
+                error=str(exc),
+                max_tokens=max_tokens,
+                temperature=0.0,
+                attempt=attempt,
+                max_attempts=max_attempts,
+                retry_will_continue=retrying,
+                retry_errors=tuple(retry_errors),
+                status="warn" if retrying else "error",
+            )
+            if retrying:
+                time.sleep(min(2.0, 0.5 * attempt))
+                continue
+            return PaperAnalysis(evidence_id=evidence_id, pmid=pmid, title=title, relevant=False, error=str(exc))
+
+    assert payload is not None
+    assert result is not None
 
     def _strs(key: str) -> tuple[str, ...]:
         v = payload.get(key)
@@ -139,6 +166,10 @@ def analyze_paper(
         parsed=payload,
         max_tokens=max_tokens,
         temperature=0.0,
+        attempt=successful_attempt,
+        max_attempts=max_attempts,
+        recovered_from_error=bool(retry_errors),
+        retry_errors=tuple(retry_errors),
     )
     return PaperAnalysis(
         evidence_id=evidence_id,
@@ -210,6 +241,12 @@ def _record_model_call(
     error: str | None = None,
     max_tokens: int | None = None,
     temperature: float | None = None,
+    attempt: int | None = None,
+    max_attempts: int | None = None,
+    retry_will_continue: bool = False,
+    recovered_from_error: bool = False,
+    retry_errors: tuple[str, ...] = (),
+    status: str | None = None,
 ) -> None:
     if recorder is None:
         return
@@ -231,6 +268,12 @@ def _record_model_call(
             "error": error,
             "max_tokens": max_tokens,
             "temperature": temperature,
+            "attempt": attempt,
+            "max_attempts": max_attempts,
+            "retry_will_continue": retry_will_continue,
+            "recovered_from_error": recovered_from_error,
+            "retry_errors": list(retry_errors),
+            "status": status,
             "evidence_id": evidence_id,
             "pmid": pmid,
             "paper_title": paper_title,
