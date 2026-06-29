@@ -49,9 +49,9 @@ place the correct diagnosis}: some surface it as their most confident (top-1) pr
 it lower in a broader list, so the model ordering re-arranges as the rank cutoff grows.
 We then present ClinicalHarness, a retrieval-guided pipeline that pairs an LLM with PubMed/PMC retrieval and
 a cheap per-paper reader. A core feature is that it grounds each diagnosis in citable literature the clinician
-can verify---a cheap reader screens retrieved papers per case and returns a mean of about ten relevant
-sources (rejecting roughly 73\% as irrelevant)---and it improves top-5 ranked accuracy for all three
-answerers we could run at pipeline scale, most where the base model is weakest.
+can verify: a cheap reader screens the papers retrieved for each case and keeps only the relevant ones,
+rejecting most. It improves top-5 ranked accuracy for all three answerers we could run at pipeline scale,
+most where the base model is weakest.
 \end{abstract}
 
 \section{Introduction}
@@ -77,7 +77,8 @@ competence, and it is invisible if one scores only a single label.
 reports, scored on the full ranked differential. (2) A cross-model evaluation of seven frontier models at
 top-1 through top-5 on a hard subset, with an interpretation of how their rank distributions differ,
 tempered by the fact that their training is undisclosed. (3) ClinicalHarness, a retrieval-guided pipeline that
-grounds each diagnosis in citable PubMed/PMC sources and improves top-5 ranked accuracy for every answerer we
+grounds each diagnosis in citable PubMed/PMC sources, and the finding that naive retrieval integration can
+\emph{degrade} a frontier model's ranked accuracy while a do-no-harm fusion improves it for every answerer we
 ran. Benchmark and code are released (\S\ref{sec:data}).
 
 \paragraph{Related work.}
@@ -350,9 +351,9 @@ control: the case's own source paper is excluded by PMCID, DOI, title, and gener
 system cannot retrieve the answer. The harness may search for syndromes, discriminators, imaging patterns,
 or treatment guidelines, but never for the source itself.
 
-\paragraph{4. Per-paper screening (reader LLM).} Each retrieved paper is screened in its own isolated
-reader call. The reader returns a compact structured note only when the paper is judged relevant to
-\emph{this} case---a short relevant excerpt, the discriminators it supplies, which hypotheses it supports or
+\paragraph{4. Per-paper screening (reader LLM, DeepSeek V4 Flash).} Each retrieved paper is screened in its
+own isolated call by the cheap reader (DeepSeek V4 Flash). The reader returns a compact structured note only
+when the paper is judged relevant to \emph{this} case---a short relevant excerpt, the discriminators it supplies, which hypotheses it supports or
 refutes, any candidate diagnosis it raises that is not yet in the differential, and follow-up queries it
 suggests. The vast majority of retrieved papers contain no usable information for the case; those are
 discarded, and only the relevant distillates pass back. The full paper text never re-enters the primary
@@ -442,14 +443,17 @@ with 43) while Gemini 3.5 Flash sits near the bottom (29); by top-5 Gemini Flash
 and GPT-5.5 has fallen behind it (51)---so a single-label evaluation mis-ranks exactly the models that are
 most useful when the deliverable is a differential for a clinician to weigh.
 
-Second, augmentation must be integrated conservatively. Replacing a strong model's differential with
-retrieval output can crowd its own correct diagnoses down the list, because a model with rich internal
-medical knowledge already holds a broader differential than a few distilled passages convey. A do-no-harm
-fusion that preserves the model's confident candidates and lets retrieval add only a diagnosis the model
-missed avoids this and yields a consistent top-5 gain (Table~\ref{tab:harness}), largest where the base model
-is weakest---supporting the reading that external evidence complements parametric knowledge at the margin
-rather than replacing it. How far that margin extends---how much a stronger reader, broader retrieval, or a
-multi-slot fusion can add without reintroducing interference---is open work.
+Second---and the result that most surprised us---augmentation can \emph{hurt}. We did not set out to build a
+do-no-harm fusion; we arrived at it because more direct designs, in which the harness re-ranks or replaces
+the model's own differential, repeatedly \emph{lowered} ranked accuracy relative to the bare model. The
+implication is broader than our pipeline: a frontier LLM already carries rich internal medical knowledge and
+a wide implicit differential, and grounding its answer in a handful of retrieved passages can crowd that
+knowledge out---so that adding correct information makes the system worse. Retrieval helped here only once we
+constrained it never to override the model's confident candidates and to contribute precisely where the model
+had a gap. We do not claim to have solved this. The harness is still in development, and learning to use
+retrieval to \emph{support} rather than displace a strong model's reasoning---especially near the top of the
+ranking, where the model's own judgement is usually right---is the open problem. The gains in
+Table~\ref{tab:harness} are the conservative floor of careful integration, not its ceiling.
 
 \section{Limitations}
 
@@ -457,8 +461,10 @@ The hard set is failure-selected, so absolute scores index difficulty rather tha
 rank gaps are within judge noise. Mechanistic claims about why model differentials differ are out of
 reach because training details are undisclosed. Published case reports are retrospective and selected for
 novelty, so this is a test of diagnostic reasoning from curated evidence, not a clinical decision-support
-trial. The harness fusion is deliberately conservative (it touches only the fifth slot); a multi-slot fusion
-could add more but risks reintroducing the interference that single-list substitution showed.
+trial. The harness fusion is deliberately conservative---it touches only the fifth slot---and is a work in progress:
+it is the safe floor we could establish, not a finished method for integrating retrieval with a frontier
+model's reasoning, and a less restrictive integration risks reintroducing the degradation that more direct
+designs showed.
 
 \section{Data, Code, and Ethics}\label{sec:data}
 
