@@ -28,3 +28,24 @@ appearing at any rank `<= n`. See the paper (`docs/workshop_submission/`) for co
 details.
 
 This is a research benchmark for evaluating diagnostic reasoning, **not** a clinical decision-support tool.
+
+## Development cases (`development_cases_359.jsonl`) — NOT the evaluation set
+
+358 earlier development challenges used while building and tuning ClinicalHarness, released for transparency
+and reuse. **These are not the evaluation benchmark and were not all held to the same bar:** unlike the
+68-case set, they were not uniformly proofread, source-mended, or contamination-filtered, and they are not
+guaranteed post-cutoff. Treat them as raw development material, not a clean benchmark.
+
+Each case carries a `review_status` indicating how far it got through vetting — filter on it for your use:
+
+| `review_status` | count | meaning |
+|---|--:|---|
+| `refined_needs_spotcheck` | 245 | refined; pending a final spot check |
+| `needs_fidelity_review` | 44 | flagged: faithfulness to source not yet cleared |
+| `needs_determinacy_validation` | 21 | flagged: determinacy not yet validated |
+| `needs_leakage_review` | 3 | flagged: possible answer leakage, not yet cleared |
+| `not_solvable` | 40 | known-defective: the diagnosis is not reachable from the prompt |
+| `not_self_contained` | 5 | known-defective: required information is missing |
+
+All 358 are CC-BY with source provenance (PMCID/DOI), same field format as the evaluation set (plus
+`review_status`). The evaluated benchmark is `neuro_psych_68_challenges.jsonl` above.

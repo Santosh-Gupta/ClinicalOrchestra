@@ -17,6 +17,12 @@ strictly CC-BY case reports published after every evaluated model's training cut
 [`docs/workshop_submission/`](docs/workshop_submission/) for the paper describing its construction and the
 cross-model results.
 
+An additional **358 development cases** used to build and tune the harness are released at
+[`benchmark/development_cases_359.jsonl`](benchmark/development_cases_359.jsonl) for transparency and reuse.
+**Disclaimer:** these are *not* the evaluation benchmark — unlike the 68-case set they were not uniformly
+proofread, source-mended, or contamination-filtered, and some are flagged unsolvable. Each carries a
+`review_status`; see [`benchmark/README.md`](benchmark/README.md) before using them.
+
 ## Agent-Trace Viewer
 
 ClinicalHarness includes a Codex / Claude-Code-style viewer for replaying or

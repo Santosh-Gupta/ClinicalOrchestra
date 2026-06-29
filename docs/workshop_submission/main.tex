@@ -114,7 +114,7 @@ for solvability. Figure~\ref{fig:benchmark} summarizes the pipeline.
   \caption{Benchmark construction. CC-BY case reports are turned into challenges by an LLM, audited for
   determinacy (is the answer derivable from the prompt?), repaired from the source or dropped, and---for the
   cross-model set---adversarially audited by three frontier models for answer leakage and insufficiency
-  before a hand-checked drop/mend pass.}
+  before a hand-checked drop/mend pass. Each stage is described in \ref{app:bench-components}.}
   \label{fig:benchmark}
 \end{figure}
 
@@ -481,6 +481,7 @@ must not be used for patient care without prospective validation and governance.
 \bibliography{../paper_references}
 
 \appendix
+\renewcommand{\thesection}{Appendix~\Alph{section}}
 
 \section{Benchmark construction pipeline components (Figure~\ref{fig:benchmark})}\label{app:bench-components}
 The six stages of Figure~\ref{fig:benchmark}, end to end:
