@@ -7,6 +7,16 @@ calls, and final diagnostic judgement.
 It is built for benchmark research and model/tool evaluation, not clinical
 decision support.
 
+## Benchmark: Neurology & Psychiatry ranked-differential dataset
+
+The contamination-controlled 68-case benchmark from the paper lives at
+[`benchmark/neuro_psych_68_challenges.jsonl`](benchmark/neuro_psych_68_challenges.jsonl) — one redacted
+diagnostic challenge per line, each with a gold diagnosis and source provenance (PMCID/DOI), derived from
+strictly CC-BY case reports published after every evaluated model's training cutoff. See
+[`benchmark/README.md`](benchmark/README.md) for the field format and
+[`docs/workshop_submission/`](docs/workshop_submission/) for the paper describing its construction and the
+cross-model results.
+
 ## Agent-Trace Viewer
 
 ClinicalHarness includes a Codex / Claude-Code-style viewer for replaying or

@@ -420,7 +420,9 @@ for all three answerers (Table~\ref{tab:harness}), and the gain grows as the bas
 the strongest answerer (Gemini Flash), $+2$ for DeepSeek V4 Pro, and $+3$ for the weakest (DeepSeek V4
 Flash)---consistent with retrieval helping most where the base model has a genuine knowledge gap. Each
 differential is grounded in the papers the reader retained as relevant---a mean of roughly 8--12 per case
-(standard deviation 7--10), out of $\sim$35--40 retrieved---which a clinician can look up. (Substituting the
+(standard deviation 7--10), which a clinician can look up---screened from a much larger retrieved pool: the
+reader rejects a mean of 26--30 papers per case (standard deviation $\sim$12) as irrelevant, out of
+$\sim$34--41 retrieved. (Substituting the
 harness's reordered differential wholesale instead of fusing it \emph{lowers} ranked accuracy, by crowding
 the model's own correct diagnoses down the list; \S\ref{sec:disc}.)
 
