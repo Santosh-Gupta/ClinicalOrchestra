@@ -464,6 +464,72 @@ class HarnessConfig:
     # would be cheating. Turn OFF for the real doctor-assist use case, where reading the actual source
     # case report (if one exists) is legitimate and useful.
     eval_mode: bool = True
+    # Etiologic-axis breadth (experimental, default OFF; ADR-043 REJECTED — population A/B was null).
+    use_axis_breadth: bool = False
+    # Maximum specificity + conjunction emission (experimental, default OFF; pending A/B). Push each
+    # ranked candidate to the most specific named entity the case findings support (subtype/etiology),
+    # and when TWO conditions each have supporting findings in the prompt (a primary disease + a
+    # comorbidity/complication), emit the CONJUNCTION "A with B" as one entry. Low-risk: a simpler gold
+    # is a substring of a more-specific answer, so pushing specificity should not break simple cases.
+    # Motivated by twelfth-wave: model named the primary component (often rank 1) but omitted the
+    # supported second component / subtype the gold required (e.g. narcolepsy + PSG-documented apnea).
+    use_max_specificity: bool = False
+    # Multi-angle ensemble (ADR-041, experimental, default OFF; pending A/B against the JUDGE_VOTES=3
+    # floor). Run 6 independent diagnostic-angle agents + a skeptical coordinator (diagnostic_ensemble.py)
+    # as a reasoning PRE-PASS, then inject their reconciled view into the final answerer (which still
+    # emits the scored top-5). Targets mis-ranking + single-framing anchoring; ~7 extra Flash calls/case.
+    use_ensemble: bool = False
+    # Compact final-answer mode (default OFF): ask the final answerer for a terse top-5 JSON schema
+    # proactively instead of first trying the full doctor-facing report. This is for provider/model
+    # cells that repeatedly truncate or stall on the verbose final schema.
+    use_compact_final_prompt: bool = False
+    # Frontier mode (default OFF): ask the final answerer to produce the first retrieval plan and
+    # reader extraction brief before PubMed retrieval. This avoids starting frontier-model runs from
+    # DeepSeek-derived deterministic templates. Deterministic queries remain available as fallback.
+    use_answerer_query_planner: bool = False
+    answerer_query_fallback: bool = True
+    # Skeptical evidence contract (default OFF except frontier-mode runner): prompts explicitly tell
+    # reader/final models that every inserted artifact is a noisy lead and must be matched to case
+    # facts before it can move the differential.
+    skeptical_evidence_mode: bool = False
+    # Bare-answer preservation (default OFF except frontier-mode runner): keep the frontier answerer's
+    # own closed-book diagnostic state visible through final ranking. Retrieval should add/refute
+    # candidates; it should not erase high/medium prior candidates unless there is a concrete
+    # case-matched discriminator against them.
+    use_bare_answer_preservation: bool = False
+    # Recall-maximizing union sampling (frontier): generate the final differential k times at
+    # ``sample_temperature`` and union the candidates by best-rank, so a gold surfacing in any sample
+    # gets a top-5 slot. Lifts pass@5. Requires samples > 1.
+    use_union_sampling: bool = False
+    # Closed-book sampling (frontier): generate the answerer's pre-retrieval differential k times and
+    # union it, widening the PROTECTED FLOOR + the in-run baseline. Exploits the fact that the answerer
+    # is non-deterministic even at temp 0 — a gold that surfaces in any one closed-book sample becomes a
+    # protected candidate. 1 = single greedy closed-book differential (default).
+    closed_book_samples: int = 1
+    # Frequency weighting for the closed-book union selection (self-consistency). 0 = pure best-rank
+    # (default); > 0 promotes candidates recurring across samples, so more samples raise recall without
+    # one-off noise crowding the gold out of the 5-slot cap. ~1.5 lets closed_book_samples > 3 help.
+    closed_book_union_freq_weight: float = 0.0
+    # Temperature for the extra closed-book differential samples. MUST stay 0.0 (project rule: every
+    # call is deterministic). NOTE: at 0.0 the samples are identical, so closed-book sampling provides
+    # no benefit — it collapses to a single differential. Keep closed_book_samples=1 accordingly.
+    closed_book_sample_temperature: float = 0.0
+    # Inclusive recall-preserving floor: seed the do-no-harm floor from a dedicated inclusive ranked
+    # top-5 elicitation (the model's own best bare differential) instead of the narrower structured
+    # planner differential. This is the fix for the harness underperforming a strong model's own bare
+    # top-5: the structured planner under-elicits recall, so the harness should protect the inclusive
+    # differential. ``floor_protect_n`` slots are protected (kept in the final top-5); the remaining
+    # 5 - n slots are open for retrieval-surfaced candidates, so retrieval can add without dropping the
+    # model's most-confident candidates.
+    use_inclusive_floor: bool = False
+    floor_protect_n: int = 4
+    # Strongest floor option: read the model's already-saved BARE5 differential
+    # (data/eval/crossmodel_bare5/<model>/<case_id>.bare5_response.json -> content.ranked_differential)
+    # instead of re-eliciting in-harness. The in-harness elicitation under-reproduces the standalone bare
+    # recall (Gemini Flash floor 51-52 vs bare 54) due to context/truncation differences; seeding from the
+    # saved bare5 differential makes floor == bare exactly, so the harness can never score below bare and
+    # retrieval (in the unprotected slots) can only add. Empty string disables it.
+    floor_from_bare5_dir: str = ""
 
 
 @dataclass(frozen=True)
@@ -474,6 +540,20 @@ class RetrievalQuery(JsonSerializableMixin):
     intent: str
     round_index: int = 1
     generated_by: str = "preset_template"
+
+
+@dataclass(frozen=True)
+class FrontierQueryPlan(JsonSerializableMixin):
+    case_id: str
+    preset: str
+    problem_representation: str | None = None
+    possible_diagnoses: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    initial_differential: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    uncertainty_map: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    query_ideas: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    reader_extraction_brief: str | None = None
+    skepticism_notes: tuple[str, ...] = field(default_factory=tuple)
+    fallback_used: bool = False
 
 
 @dataclass(frozen=True)
@@ -504,6 +584,10 @@ class EvidenceSynthesis(JsonSerializableMixin):
     preset: str
     synthesis_round: int
     useful_discriminators: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    # Candidate diagnoses the retrieved SOURCES name that fit >=1 case finding (literature extraction,
+    # not a verdict). Surfaced to the diagnostician so its inclusive top-5 tail can add literature
+    # candidates it would otherwise miss — the dominant remaining recall failure for frontier models.
+    candidate_diagnoses: tuple[str, ...] = field(default_factory=tuple)
     top_mimic_pair: tuple[str, ...] = field(default_factory=tuple)
     anchor_risks: tuple[str, ...] = field(default_factory=tuple)
     additional_queries: tuple[str, ...] = field(default_factory=tuple)
@@ -542,6 +626,10 @@ class RetrievalGuidedEvalRow(JsonSerializableMixin):
     # Top-5 ranked differential: 1-based rank at which the gold diagnosis first matches a ranked
     # candidate (None if not in the top 5). pass@k = gold_rank is not None and gold_rank <= k.
     gold_rank: int | None = None
+    # Frontier-mode in-run baseline: gold rank within the answerer's CLOSED-BOOK top-5 (the
+    # differential it produced before any retrieval). Lets us measure retrieval lift fairly in a
+    # single run (final gold_rank vs closed_book_gold_rank), and audit the closed-book floor.
+    closed_book_gold_rank: int | None = None
 
 
 EventEmitter = Callable[[dict[str, Any]], None]
@@ -630,12 +718,17 @@ def run_retrieval_guided_manifest_eval(
     judge_client: OpenAICompatibleChatClient | None = None,
     judge_model: str | None = None,
     samples: int = 1,
-    sample_temperature: float = 0.5,
+    sample_temperature: float = 0.0,  # ALWAYS 0.0 (project rule)
     use_preset_overrides: bool = True,
     concurrency: int = 1,
     config: HarnessConfig = HarnessConfig(),
     emitter: EventEmitter | None = None,
+    reader_client: OpenAICompatibleChatClient | None = None,
 ) -> tuple[RetrievalGuidedEvalRow, ...]:
+    # The "reader" model does the cheap, high-volume sub-tasks (per-paper screening, evidence
+    # distillation, the initial clinical assessment); only the final diagnostic answer uses the
+    # (possibly expensive) answerer model_client. Defaults to the answerer when not split. This makes
+    # cross-model runs affordable: e.g. a frontier answerer with deepseek-v4-pro reading the papers.
     rows = load_failed_manifest(manifest_path)
     if case_ids:
         wanted = set(case_ids)
@@ -662,6 +755,7 @@ def run_retrieval_guided_manifest_eval(
     # client instead of racing on lazy initialization inside the per-case body.
     if model_client is None and not dry_run:
         model_client = OpenAICompatibleChatClient.from_env(model=model_name)
+    reader = reader_client or model_client  # reader defaults to the answerer when not split
     judge_fallback_client: OpenAICompatibleChatClient | None = None
     if judge and judge_client is None and not dry_run:
         # Resolve an independent judge model when requested (e.g. deepseek-v4-pro grading
@@ -688,6 +782,7 @@ def run_retrieval_guided_manifest_eval(
             print(f"[{index}/{total}] retrieval-guided {case.case_id} preset={preset}", file=sys.stderr, flush=True)
 
         query_path = root / f"{case.case_id}.queries.json"
+        query_plan_path = root / f"{case.case_id}.query_plan.json"
         evidence_path = root / f"{case.case_id}.evidence.json"
         synthesis_path = root / f"{case.case_id}.synthesis.json"
         prompt_path = root / f"{case.case_id}.retrieval_prompt.txt"
@@ -703,6 +798,34 @@ def run_retrieval_guided_manifest_eval(
             queries = _read_json_array(query_path, RetrievalQuery)
             evidence = _read_json_array(evidence_path, RetrievalEvidence)
             syntheses = _read_json_array(synthesis_path, EvidenceSynthesis)
+            closed_book_top5 = _stored_closed_book_top5(stored)
+            if not closed_book_top5:
+                closed_book_top5 = _closed_book_top5_from_query_plan_path(
+                    query_plan_path,
+                    case=case,
+                    preset=preset,
+                    max_queries=max_queries,
+                    config=config,
+                )
+            stored_closed_book_rank = stored.get("closed_book_gold_rank")
+            if isinstance(stored_closed_book_rank, int):
+                closed_book_gold_rank = stored_closed_book_rank
+            elif has_expected_answer and closed_book_top5:
+                closed_book_gold_rank = _gold_rank(
+                    closed_book_top5,
+                    answer_key,
+                    judge_client=judge_client if judge else None,
+                    fallback_client=judge_fallback_client,
+                )
+            else:
+                closed_book_gold_rank = None
+            stored_consistency = stored.get("self_consistency")
+            stored_union = stored.get("union_sampling")
+            stored_samples = (
+                stored_consistency.get("samples") if isinstance(stored_consistency, dict) else
+                stored_union.get("samples") if isinstance(stored_union, dict) else None
+            )
+            stored_agreement = stored_consistency.get("agreement") if isinstance(stored_consistency, dict) else None
             final = _optional_str(model_payload, "final_diagnosis") if model_payload else None
             _jc = judge_client if judge else None
             row = RetrievalGuidedEvalRow(
@@ -718,11 +841,14 @@ def run_retrieval_guided_manifest_eval(
                 evidence_path=str(evidence_path),
                 response_path=str(response_path),
                 error=error,
+                samples=stored_samples if isinstance(stored_samples, int) else 1,
+                agreement=stored_agreement if isinstance(stored_agreement, (int, float)) else None,
                 gold_rank=(
                     _gold_rank(_ranked_diagnoses(model_payload), answer_key, judge_client=_jc, fallback_client=judge_fallback_client)
                     if has_expected_answer
                     else None
                 ),
+                closed_book_gold_rank=closed_book_gold_rank,
                 **_score_fields(final, answer_key if has_expected_answer else None, judge_client=_jc, fallback_client=judge_fallback_client),
             )
             if event_path.exists():
@@ -780,19 +906,156 @@ def run_retrieval_guided_manifest_eval(
         queries: tuple[RetrievalQuery, ...] = ()
         evidence: tuple[RetrievalEvidence, ...] = ()
         syntheses: tuple[EvidenceSynthesis, ...] = ()
+        frontier_query_plan: FrontierQueryPlan | None = None
         previous_queries: set[str] = set()
         for round_index in range(1, max_rounds + 1):
             trace.emit("round_started", "system", f"Round {round_index}", round_index=round_index)
-            round_queries = build_retrieval_queries(
-                case,
-                preset=preset,
-                max_queries=max_queries,
-                round_index=round_index,
-                previous_queries=tuple(previous_queries),
-                evidence=evidence,
-                synthesis=syntheses[-1] if syntheses else None,
-                config=config,
-            )
+            frontier_planner_available = config.use_answerer_query_planner and not dry_run and model_client is not None
+            if round_index == 1 and frontier_planner_available:
+                frontier_query_plan = generate_frontier_query_plan(
+                    model_client,
+                    case,
+                    preset=preset,
+                    max_queries=max_queries,
+                    max_rounds=max_rounds,
+                    previous_queries=tuple(previous_queries),
+                    config=config,
+                    model_call_recorder=record_model_call,
+                )
+                query_plan_path.write_text(
+                    json.dumps(frontier_query_plan.to_dict(), indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                trace.emit(
+                    "query_plan",
+                    "planner",
+                    "Frontier query plan",
+                    round_index=round_index,
+                    summary=f"{len(frontier_query_plan.query_ideas)} safe query idea(s)",
+                    status="warn" if frontier_query_plan.fallback_used else "ok",
+                    payload=frontier_query_plan.to_dict(),
+                )
+                plan_queries = retrieval_queries_from_frontier_plan(
+                    frontier_query_plan,
+                    max_queries=max_queries,
+                    round_index=round_index,
+                )
+                if config.answerer_query_fallback and len(plan_queries) < max_queries:
+                    fallback_queries = build_retrieval_queries(
+                        case,
+                        preset=preset,
+                        max_queries=max_queries - len(plan_queries),
+                        round_index=round_index,
+                        previous_queries=tuple(previous_queries | {query.query for query in plan_queries}),
+                        evidence=evidence,
+                        synthesis=syntheses[-1] if syntheses else None,
+                        config=config,
+                    )
+                    # Renumber deterministic fallback queries after frontier-generated ones.
+                    fallback_queries = tuple(
+                        RetrievalQuery(
+                            query_id=f"r{round_index}q{len(plan_queries) + i + 1}",
+                            query=query.query,
+                            source=query.source,
+                            intent=query.intent,
+                            round_index=query.round_index,
+                            generated_by=f"fallback_after_{query.generated_by}",
+                        )
+                        for i, query in enumerate(fallback_queries)
+                    )
+                else:
+                    fallback_queries = ()
+                round_queries = (*plan_queries, *fallback_queries)[:max_queries]
+                if not round_queries and config.answerer_query_fallback:
+                    round_queries = build_retrieval_queries(
+                        case,
+                        preset=preset,
+                        max_queries=max_queries,
+                        round_index=round_index,
+                        previous_queries=tuple(previous_queries),
+                        evidence=evidence,
+                        synthesis=syntheses[-1] if syntheses else None,
+                        config=config,
+                    )
+            elif round_index > 1 and frontier_planner_available:
+                round_queries = build_retrieval_queries(
+                    case,
+                    preset=preset,
+                    max_queries=max_queries,
+                    round_index=round_index,
+                    previous_queries=tuple(previous_queries),
+                    evidence=evidence,
+                    synthesis=syntheses[-1] if syntheses else None,
+                    config=config,
+                )
+                if len(round_queries) < max_queries:
+                    followup_plan = generate_frontier_followup_query_plan(
+                        model_client,
+                        case,
+                        preset=preset,
+                        max_queries=max_queries - len(round_queries),
+                        max_rounds=max_rounds,
+                        round_index=round_index,
+                        previous_queries=tuple(previous_queries | {query.query for query in round_queries}),
+                        evidence=evidence,
+                        synthesis=syntheses[-1] if syntheses else None,
+                        initial_query_plan=frontier_query_plan,
+                        config=config,
+                        model_call_recorder=record_model_call,
+                    )
+                    followup_plan_path = root / f"{case.case_id}.query_plan.r{round_index}.json"
+                    followup_plan_path.write_text(
+                        json.dumps(followup_plan.to_dict(), indent=2, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+                    trace.emit(
+                        "query_plan",
+                        "planner",
+                        f"Frontier follow-up query plan · round {round_index}",
+                        round_index=round_index,
+                        summary=f"{len(followup_plan.query_ideas)} safe query idea(s)",
+                        status="warn" if followup_plan.fallback_used else "ok",
+                        payload=followup_plan.to_dict(),
+                    )
+                    plan_queries = retrieval_queries_from_frontier_plan(
+                        followup_plan,
+                        max_queries=max_queries - len(round_queries),
+                        round_index=round_index,
+                        generated_by="answerer_followup_query_plan",
+                    )
+                    # Renumber follow-up planner queries after any reader-derived ones.
+                    plan_queries = tuple(
+                        RetrievalQuery(
+                            query_id=f"r{round_index}q{len(round_queries) + i + 1}",
+                            query=query.query,
+                            source=query.source,
+                            intent=query.intent,
+                            round_index=query.round_index,
+                            generated_by=query.generated_by,
+                        )
+                        for i, query in enumerate(plan_queries)
+                    )
+                    round_queries = (*round_queries, *plan_queries)[:max_queries]
+                if not round_queries:
+                    trace.emit(
+                        "round_completed",
+                        "system",
+                        f"Round {round_index} skipped: no non-generic follow-up queries",
+                        round_index=round_index,
+                        status="info",
+                    )
+                    break
+            else:
+                round_queries = build_retrieval_queries(
+                    case,
+                    preset=preset,
+                    max_queries=max_queries,
+                    round_index=round_index,
+                    previous_queries=tuple(previous_queries),
+                    evidence=evidence,
+                    synthesis=syntheses[-1] if syntheses else None,
+                    config=config,
+                )
             previous_queries.update(query.query for query in round_queries)
             queries = (*queries, *round_queries)
             for query in round_queries:
@@ -856,12 +1119,13 @@ def run_retrieval_guided_manifest_eval(
             if distill_evidence and not dry_run:
                 assert model_client is not None  # eagerly constructed before dispatch
                 synthesis = distill_retrieved_evidence(
-                    model_client,
+                    reader,
                     case,
                     preset=preset,
                     evidence=evidence,
                     round_index=round_index,
                     config=config,
+                    query_plan=frontier_query_plan,
                     model_call_recorder=record_model_call,
                 )
             else:
@@ -919,14 +1183,17 @@ def run_retrieval_guided_manifest_eval(
             )[:600] or "open differential"
             # Hand the screener the model's full working differential so its relevance judgment is
             # nuanced to THIS case (not topical). One cheap Flash call, reused across all papers.
-            clinical_reasoning = _initial_clinical_assessment(
-                model_client,
-                case,
-                preset,
-                model_call_recorder=record_model_call,
-            )
+            if frontier_query_plan and frontier_query_plan.reader_extraction_brief:
+                clinical_reasoning = frontier_query_plan.reader_extraction_brief
+            else:
+                clinical_reasoning = _initial_clinical_assessment(
+                    reader,
+                    case,
+                    preset,
+                    model_call_recorder=record_model_call,
+                )
             paper_analyses = analyze_papers(
-                model_client,
+                reader,
                 papers=[
                     {"evidence_id": e.evidence_id, "pmid": e.pmid, "doi": e.doi, "title": e.title,
                      "abstract_snippet": e.abstract_snippet, "full_text_snippet": e.full_text_snippet}
@@ -939,15 +1206,46 @@ def run_retrieval_guided_manifest_eval(
                 model_call_recorder=record_model_call,
             )
 
+        ensemble_view: dict[str, Any] | None = None
+        if config.use_ensemble and not dry_run and model_client is not None:
+            from .diagnostic_ensemble import run_angles, consolidate
+            _ev_summary = "\n".join(
+                f"- {e.title}: {(e.abstract_snippet or e.full_text_snippet or '')[:200]}"
+                for e in _ranked_relevant_evidence(evidence, config)[:6]
+            )
+            _contribs = run_angles(model_client, case_summary=case.prompt, evidence_summary=_ev_summary)
+            _ens = consolidate(model_client, case_summary=case.prompt, contributions=_contribs)
+            ensemble_view = {
+                "angle_candidates": [
+                    {"angle": c.angle, "candidates": list(c.candidates), "must_exclude": list(c.must_exclude)}
+                    for c in _contribs if c.error is None
+                ],
+                "coordinator_final_diagnosis": _ens.final_diagnosis,
+                "coordinator_rationale": _ens.consolidation_rationale,
+                "coordinator_unresolved": _ens.unresolved,
+            }
+
         prompt = build_retrieval_guided_final_prompt(
             case,
             preset=preset,
             evidence=evidence,
+            queries=queries,
             syntheses=syntheses,
             max_rounds=max_rounds,
             config=config,
             paper_analyses=paper_analyses,
+            ensemble_view=ensemble_view,
+            query_plan=frontier_query_plan,
         )
+        if config.use_compact_final_prompt:
+            prompt = _compact_final_answer_prompt(
+                _extract_prompt_case_packet(prompt) or {},
+                intro=(
+                    "Return ONLY one minified strict JSON object. Do not include markdown, prose, or "
+                    "long feature lists. Keep every string under 25 words. Use the clinical case and "
+                    "evidence below to commit to the most specific diagnosis."
+                ),
+            )
         prompt_path.write_text(prompt, encoding="utf-8")
         trace.emit(
             "prompt_built",
@@ -958,6 +1256,8 @@ def run_retrieval_guided_manifest_eval(
         )
 
         model_payload: dict[str, Any] | None = None
+        closed_book_top5: list[str] = []
+        closed_book_gold_rank: int | None = None
         error: str | None = None
         agreement: float | None = None
         response_path_value: str | None
@@ -972,11 +1272,10 @@ def run_retrieval_guided_manifest_eval(
                 preset=preset,
                 samples=samples,
                 sample_temperature=sample_temperature,
-                consensus_judge=judge_client if judge else None,
+                consensus_judge=None if config.use_union_sampling else (judge_client if judge else None),
+                union_differential=config.use_union_sampling,
                 model_call_recorder=record_model_call,
             )
-            response_path.write_text(json.dumps(response_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-            response_path_value = str(response_path)
             trace.emit(
                 "model_response",
                 "diagnostician",
@@ -1008,6 +1307,45 @@ def run_retrieval_guided_manifest_eval(
                     )
                     model_payload["ranked_differential"] = [{"rank": i + 1, "diagnosis": d} for i, d in enumerate(_reranked)]
                     model_payload["final_diagnosis"] = _reranked[0]
+            if config.use_bare_answer_preservation and model_payload:
+                # Frontier do-no-harm floor: protect the answerer's closed-book top-5 from being
+                # silently dropped by retrieval (the dominant top-5 regression mechanism). With
+                # closed_book_samples > 1 the floor is widened by unioning extra pre-retrieval samples.
+                if config.use_inclusive_floor:
+                    # Seed the floor from the model's own inclusive bare differential (broader recall than
+                    # the structured planner), and protect only the top floor_protect_n so retrieval keeps
+                    # 5 - n open slots to add genuinely new candidates. If a saved bare5 differential is
+                    # available, prefer it (floor == bare exactly) over re-eliciting in-harness.
+                    closed_book_top5 = _bare5_floor(case.case_id, config.floor_from_bare5_dir)
+                    if not closed_book_top5:
+                        closed_book_top5 = _inclusive_closed_book_top5(
+                            model_client, case, model_call_recorder=record_model_call,
+                        )
+                else:
+                    closed_book_top5 = _sampled_closed_book_top5(
+                        model_client, case, frontier_query_plan, config.closed_book_samples,
+                        freq_weight=config.closed_book_union_freq_weight,
+                        sample_temperature=config.closed_book_sample_temperature,
+                        model_call_recorder=record_model_call,
+                    )
+                if closed_book_top5:
+                    _protect = (
+                        closed_book_top5[: max(0, config.floor_protect_n)]
+                        if config.use_inclusive_floor
+                        else closed_book_top5
+                    )
+                    if _protect:
+                        _enforce_closed_book_floor(model_payload, _protect)
+            closed_book_gold_rank = (
+                _gold_rank(closed_book_top5, answer_key, judge_client=judge_client if judge else None, fallback_client=judge_fallback_client)
+                if (has_expected_answer and closed_book_top5)
+                else None
+            )
+            response_payload["content"] = model_payload
+            response_payload["closed_book_top5"] = list(closed_book_top5)
+            response_payload["closed_book_gold_rank"] = closed_book_gold_rank
+            response_path.write_text(json.dumps(response_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            response_path_value = str(response_path)
             if model_payload:
                 _write_case_report(root / f"{case.case_id}.report.md", case, model_payload)
                 trace.emit(
@@ -1041,6 +1379,9 @@ def run_retrieval_guided_manifest_eval(
                 _gold_rank(_ranked_diagnoses(model_payload), answer_key, judge_client=_jc, fallback_client=judge_fallback_client)
                 if has_expected_answer
                 else None
+            ),
+            closed_book_gold_rank=(
+                closed_book_gold_rank
             ),
             **_score_fields(
                 final,
@@ -1164,7 +1505,7 @@ def rerank_differential(
         + f"Candidates (to reorder, verbatim):\n{json.dumps(candidates, ensure_ascii=False)}\n"
     )
     try:
-        result = model_client.chat(prompt=prompt, temperature=0.0, max_tokens=4096)
+        result = model_client.chat(prompt=prompt, temperature=0.0, max_tokens=16000)
         payload = parse_json_object(result.content)
         _record_model_call(
             model_call_recorder,
@@ -1174,7 +1515,7 @@ def rerank_differential(
             prompt=prompt,
             result=result,
             parsed=payload,
-            max_tokens=4096,
+            max_tokens=16000,
             temperature=0.0,
         )
     except Exception as exc:  # noqa: BLE001 - re-rank is best-effort; keep original order on failure.
@@ -1185,7 +1526,7 @@ def rerank_differential(
             title="Rerank differential failed",
             prompt=prompt,
             error=str(exc),
-            max_tokens=4096,
+            max_tokens=16000,
             temperature=0.0,
         )
         return candidates
@@ -1229,7 +1570,7 @@ def _initial_clinical_assessment(
         f"Case:\n{case.prompt}\n"
     )
     try:
-        result = model_client.chat(prompt=prompt, temperature=0.0, max_tokens=4096)
+        result = model_client.chat(prompt=prompt, temperature=0.0, max_tokens=16000)
         _record_model_call(
             model_call_recorder,
             stage="initial_clinical_assessment",
@@ -1237,7 +1578,7 @@ def _initial_clinical_assessment(
             title="Initial clinical assessment",
             prompt=prompt,
             result=result,
-            max_tokens=4096,
+            max_tokens=16000,
             temperature=0.0,
         )
         return result.content.strip()[:2000]
@@ -1249,7 +1590,7 @@ def _initial_clinical_assessment(
             title="Initial clinical assessment failed",
             prompt=prompt,
             error=str(exc),
-            max_tokens=4096,
+            max_tokens=16000,
             temperature=0.0,
         )
         return ""
@@ -1264,6 +1605,7 @@ def _generate_final_answer(
     samples: int,
     sample_temperature: float,
     consensus_judge: OpenAICompatibleChatClient | None,
+    union_differential: bool = False,
     model_call_recorder: ModelCallRecorder | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any], str | None, float | None]:
     """Run the final-answer model once, or k times for self-consistency.
@@ -1278,7 +1620,7 @@ def _generate_final_answer(
             # Generous completion budget: reasoning models spend tokens on hidden reasoning before
             # emitting the answer JSON, and a too-small cap silently truncates to empty content
             # (finish_reason=length) on exactly the hardest cases, which would read as a wrong answer.
-            result = model_client.chat(prompt=prompt, temperature=temperature, max_tokens=12000)
+            result = model_client.chat(prompt=prompt, temperature=temperature, max_tokens=16000)
         except Exception as exc:
             _record_model_call(
                 model_call_recorder,
@@ -1287,13 +1629,14 @@ def _generate_final_answer(
                 title=f"Final answer sample {sample_index}",
                 prompt=prompt,
                 error=str(exc),
-                max_tokens=12000,
+                max_tokens=16000,
                 temperature=temperature,
             )
             return None, {"case_id": case.case_id, "preset": preset, "error": str(exc)}, str(exc)
         try:
             payload = parse_json_object(result.content)
         except Exception as exc:
+            retry_prompt = _compact_final_answer_retry_prompt(prompt)
             _record_model_call(
                 model_call_recorder,
                 stage="final_answer",
@@ -1302,14 +1645,59 @@ def _generate_final_answer(
                 prompt=prompt,
                 result=result,
                 error=f"model response was not valid JSON: {exc}",
-                max_tokens=12000,
+                max_tokens=16000,
                 temperature=temperature,
             )
-            return None, {
-                "case_id": case.case_id, "preset": preset, "model": result.model,
-                "latency_ms": result.latency_ms, "error": f"model response was not valid JSON: {exc}",
-                "raw_content": result.content, "raw": result.raw,
-            }, f"model response was not valid JSON: {exc}"
+            try:
+                retry_result = model_client.chat(prompt=retry_prompt, temperature=0.0, max_tokens=10000)
+                payload = parse_json_object(retry_result.content)
+            except Exception as retry_exc:
+                retry_error = f"compact final-answer retry failed: {retry_exc}"
+                if "retry_result" in locals():
+                    _record_model_call(
+                        model_call_recorder,
+                        stage="final_answer",
+                        actor="diagnostician",
+                        title=f"Final answer compact retry sample {sample_index}",
+                        prompt=retry_prompt,
+                        result=retry_result,
+                        error=retry_error,
+                        max_tokens=10000,
+                        temperature=0.0,
+                    )
+                else:
+                    _record_model_call(
+                        model_call_recorder,
+                        stage="final_answer",
+                        actor="diagnostician",
+                        title=f"Final answer compact retry sample {sample_index}",
+                        prompt=retry_prompt,
+                        error=retry_error,
+                        max_tokens=10000,
+                        temperature=0.0,
+                    )
+                return None, {
+                    "case_id": case.case_id, "preset": preset, "model": result.model,
+                    "latency_ms": result.latency_ms, "error": f"model response was not valid JSON: {exc}",
+                    "retry_error": retry_error, "raw_content": result.content, "raw": result.raw,
+                }, f"model response was not valid JSON: {exc}"
+            _record_model_call(
+                model_call_recorder,
+                stage="final_answer",
+                actor="diagnostician",
+                title=f"Final answer compact retry sample {sample_index}",
+                prompt=retry_prompt,
+                result=retry_result,
+                parsed=payload,
+                max_tokens=10000,
+                temperature=0.0,
+            )
+            return payload, {
+                "case_id": case.case_id, "preset": preset, "model": retry_result.model,
+                "latency_ms": retry_result.latency_ms, "content": payload, "raw": retry_result.raw,
+                "recovered_from_invalid_json": True,
+                "initial_error": f"model response was not valid JSON: {exc}",
+            }, None
         _record_model_call(
             model_call_recorder,
             stage="final_answer",
@@ -1318,7 +1706,7 @@ def _generate_final_answer(
             prompt=prompt,
             result=result,
             parsed=payload,
-            max_tokens=12000,
+            max_tokens=16000,
             temperature=temperature,
         )
         return payload, {
@@ -1339,6 +1727,30 @@ def _generate_final_answer(
         sample_finals.append((_optional_str(payload, "final_diagnosis") or "") if payload else "")
         if err:
             last_error = err
+    if union_differential:
+        # Recall-maximizing union: merge the k samples' ranked differentials, ranking each candidate
+        # by its BEST (lowest) rank across samples (ties broken by frequency). A gold that surfaces in
+        # ANY sample gets a top-5 slot. The closed-book floor still applies downstream.
+        union = _union_top5_from_samples(sample_payloads)
+        base = next((p for p in sample_payloads if p), None)
+        chosen_payload = dict(base) if base else None
+        if chosen_payload is not None and union:
+            chosen_payload["ranked_differential"] = [{"rank": i + 1, "diagnosis": d} for i, d in enumerate(union)]
+            chosen_payload["final_diagnosis"] = union[0]
+        error = None if chosen_payload is not None else (last_error or "all answer samples failed")
+        response_payload = {
+            "case_id": case.case_id,
+            "preset": preset,
+            "union_sampling": {
+                "samples": samples,
+                "sample_temperature": sample_temperature,
+                "sample_final_diagnoses": list(sample_finals),
+                "union_differential": union,
+            },
+            "content": chosen_payload,
+            "error": error,
+        }
+        return chosen_payload, response_payload, error, None
     if consensus_judge is not None:
         result = consensus_diagnosis_judged(
             sample_finals,
@@ -1439,6 +1851,261 @@ def _ranked_diagnoses(model_payload: dict[str, Any] | None, *, limit: int = 5) -
     return out[:limit]
 
 
+def _norm_dx(text: str) -> str:
+    return re.sub(r"[^a-z0-9 ]+", " ", text.lower()).strip()
+
+
+def _union_top5_from_samples(
+    sample_payloads: list[dict[str, Any] | None], *, limit: int = 5, freq_weight: float = 0.0
+) -> list[str]:
+    """Merge k sampled ranked differentials into one recall-maximizing top-5. Each candidate is scored
+    by its BEST (lowest) rank across samples; ties broken by how many samples raised it. A diagnosis
+    that appears in any one sample's top ranks gets a slot, which lifts pass@k recall.
+
+    ``freq_weight`` > 0 promotes candidates that recur across samples (self-consistency): the slot score
+    becomes ``best_rank - freq_weight*(freq-1)``, so a gold in several samples beats a one-off rank-1.
+    This lets more samples raise recall without one-off noise crowding the gold out of the ``limit`` cap.
+    """
+    best: dict[str, list[Any]] = {}  # norm -> [best_rank, freq, display]
+    for payload in sample_payloads:
+        if not payload:
+            continue
+        for rank, name in enumerate(_ranked_diagnoses(payload, limit=8), start=1):
+            key = _norm_dx(name)
+            if not key:
+                continue
+            if key not in best:
+                best[key] = [rank, 1, name.strip()]
+            else:
+                best[key][1] += 1
+                if rank < best[key][0]:
+                    best[key][0] = rank
+    ordered = sorted(best.values(), key=lambda v: (v[0] - freq_weight * (v[1] - 1), v[0], -v[1]))
+    return [disp for _, _, disp in ordered][:limit]
+
+
+def _closed_book_top5(frontier_query_plan: "FrontierQueryPlan | None") -> list[str]:
+    """The answerer's CLOSED-BOOK differential (top-5), produced before any retrieval, from the
+    frontier query plan. Ranked by ``current_weight`` (high > medium > low), then original order.
+    This is the frontier baseline and the protected floor for the do-no-harm rule."""
+    if frontier_query_plan is None:
+        return []
+    items = list(getattr(frontier_query_plan, "possible_diagnoses", ()) or ()) or list(
+        getattr(frontier_query_plan, "initial_differential", ()) or ()
+    )
+    weight = {"high": 0, "medium": 1, "low": 2}
+    ranked: list[tuple[int, int, str]] = []
+    for i, it in enumerate(items):
+        if not isinstance(it, dict):
+            continue
+        dx = it.get("diagnosis")
+        if isinstance(dx, str) and dx.strip():
+            ranked.append((weight.get(str(it.get("current_weight", "")).lower(), 1), i, dx.strip()))
+    ranked.sort(key=lambda t: (t[0], t[1]))
+    return [dx for _, _, dx in ranked][:5]
+
+
+def _stored_closed_book_top5(stored_response: dict[str, Any]) -> list[str]:
+    value = stored_response.get("closed_book_top5")
+    if not isinstance(value, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if isinstance(item, str) and item.strip():
+            key = _norm_dx(item)
+            if key and key not in seen:
+                seen.add(key)
+                out.append(item.strip())
+    return out[:5]
+
+
+def _closed_book_top5_from_query_plan_path(
+    path: Path,
+    *,
+    case: ClinicalCase,
+    preset: str,
+    max_queries: int,
+    config: HarnessConfig,
+) -> list[str]:
+    if not path.exists():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    try:
+        plan = frontier_query_plan_from_payload(
+            case,
+            preset=preset,
+            payload=payload,
+            max_queries=max_queries,
+            config=config,
+        )
+    except Exception:  # noqa: BLE001 - legacy/replayed artifacts should not abort skip_existing.
+        return []
+    return _closed_book_top5(plan)
+
+
+_CLOSED_BOOK_SAMPLE_PROMPT = (
+    'Give your TOP 8 most-likely diagnoses for this case, ranked most to least likely, as strict JSON '
+    '{"ranked_differential":[{"rank":1,"diagnosis":"..."}]}. Use ONLY your own medical knowledge (no '
+    'outside lookup); be inclusive in ranks 4-8 (a recall net of plausible alternatives). Case:\n'
+)
+
+
+def _sampled_closed_book_top5(
+    answerer: "OpenAICompatibleChatClient | None",
+    case: ClinicalCase,
+    frontier_query_plan: "FrontierQueryPlan | None",
+    n_samples: int,
+    *,
+    freq_weight: float = 0.0,
+    sample_temperature: float = 0.0,  # ALWAYS 0.0 (project rule)
+    model_call_recorder: ModelCallRecorder | None = None,
+) -> list[str]:
+    """Widen the closed-book floor by unioning the planner's differential with (n_samples-1) extra
+    answerer samples of the pre-retrieval differential. Exploits answerer non-determinism at temp 0: a
+    gold that surfaces in any one closed-book sample becomes a protected candidate."""
+    planner_diff = _closed_book_top5(frontier_query_plan)
+    if n_samples <= 1 or answerer is None:
+        return planner_diff
+    samples: list[dict[str, Any] | None] = [
+        {"ranked_differential": [{"diagnosis": d} for d in planner_diff]}
+    ] if planner_diff else []
+    for i in range(n_samples - 1):
+        try:
+            res = answerer.chat(prompt=_CLOSED_BOOK_SAMPLE_PROMPT + case.prompt, temperature=sample_temperature, max_tokens=2000)
+            samples.append(parse_json_object(res.content))
+            _record_model_call(
+                model_call_recorder, stage="closed_book_sample", actor="diagnostician",
+                title=f"Closed-book differential sample {i + 1}", prompt=_CLOSED_BOOK_SAMPLE_PROMPT + case.prompt,
+                result=res, max_tokens=2000, temperature=sample_temperature,
+            )
+        except Exception as exc:  # noqa: BLE001 - a failed sample just doesn't widen the floor.
+            _record_model_call(
+                model_call_recorder,
+                stage="closed_book_sample",
+                actor="diagnostician",
+                title=f"Closed-book differential sample {i + 1} failed",
+                prompt=_CLOSED_BOOK_SAMPLE_PROMPT + case.prompt,
+                error=str(exc),
+                max_tokens=2000,
+                temperature=sample_temperature,
+                status="error",
+            )
+    return _union_top5_from_samples(samples, freq_weight=freq_weight) or planner_diff
+
+
+# IMPORTANT: kept byte-for-byte identical to scripts/bare_top5_eval.py PROMPT so the floor elicitation
+# reproduces the model's TRUE bare ranked recall. An earlier "be inclusive in the lower ranks" variant
+# under-elicited (Gemini Flash floor 52 vs the bare prompt's 54), leaving the harness 2 points short of the
+# bare baseline. The floor must equal the bare differential, not a paraphrase of it.
+_INCLUSIVE_FLOOR_PROMPT = (
+    'Give your TOP 5 most likely diagnoses for this case, ranked most likely first, as strict JSON '
+    '{"ranked_differential":[{"rank":1,"diagnosis":"..."},...5 items]}. Use ONLY your own medical '
+    'knowledge (no outside lookup). Be specific. Case:\n'
+)
+
+
+def _bare5_floor(case_id: str, bare5_dir: str) -> list[str]:
+    """Read the model's saved standalone bare5 differential as the floor. Guarantees floor == bare so the
+    harness can never regress below the model's own bare top-5. Returns [] if the file is absent/malformed
+    (the caller then falls back to in-harness elicitation)."""
+    if not bare5_dir or not case_id:
+        return []
+    path = os.path.join(bare5_dir, f"{case_id}.bare5_response.json")
+    try:
+        content = json.load(open(path, encoding="utf-8")).get("content")
+        return _ranked_diagnoses(content, limit=5) if isinstance(content, dict) else []
+    except (OSError, ValueError):
+        return []
+
+
+def _inclusive_closed_book_top5(
+    answerer: "OpenAICompatibleChatClient | None",
+    case: ClinicalCase,
+    *,
+    model_call_recorder: ModelCallRecorder | None = None,
+) -> list[str]:
+    """The model's own INCLUSIVE ranked top-5 from one deterministic (temp-0) call. This elicits the
+    broad bare differential the model would give when asked for a recall net, which is wider than the
+    structured planner differential and is the recall the harness must preserve. Used as the floor seed
+    so the harness final top-5 does not regress below the model's own bare ranked recall."""
+    if answerer is None:
+        return []
+    try:
+        res = answerer.chat(prompt=_INCLUSIVE_FLOOR_PROMPT + case.prompt, temperature=0.0, max_tokens=16000)
+        payload = parse_json_object(res.content)
+        _record_model_call(
+            model_call_recorder, stage="inclusive_floor", actor="diagnostician",
+            title="Inclusive closed-book floor", prompt=_INCLUSIVE_FLOOR_PROMPT + case.prompt,
+            result=res, max_tokens=16000, temperature=0.0,
+        )
+        return _ranked_diagnoses(payload, limit=5)
+    except Exception:  # noqa: BLE001 - a failed elicitation just leaves the floor empty for this case.
+        return []
+
+
+def _enforce_closed_book_floor(model_payload: dict[str, Any], closed_book_top5: list[str]) -> None:
+    """Frontier do-no-harm floor (mutates ``model_payload``): every closed-book top-5 candidate must
+    remain in the FINAL top-5 unless the model explicitly marked it ``excluded`` in
+    ``closed_book_prior_audit``. Candidates the model silently dropped (the dominant top-5 regression
+    mechanism) are re-inserted. Guarantees final top-5 recall >= closed-book top-5 recall minus the
+    candidates the model actively refuted, so retrieval can only add/promote, never silently lose."""
+    if not closed_book_top5 or not isinstance(model_payload, dict):
+        return
+    excluded: set[str] = set()
+    audit = model_payload.get("closed_book_prior_audit")
+    if isinstance(audit, list):
+        for a in audit:
+            if isinstance(a, dict) and str(a.get("final_status", "")).lower() == "excluded":
+                dx = a.get("diagnosis")
+                if isinstance(dx, str):
+                    excluded.add(_norm_dx(dx))
+    protected = [c for c in closed_book_top5 if _norm_dx(c) not in excluded]
+    if not protected:
+        return
+    final = model_payload.get("ranked_differential")
+    if not isinstance(final, list) or not final:
+        final = [{"diagnosis": d} for d in _ranked_diagnoses(model_payload)]
+    final = [
+        (d if isinstance(d, dict) else {"diagnosis": str(d)})
+        for d in final
+        if (d.get("diagnosis") if isinstance(d, dict) else d)
+    ]
+    protected_norm = {_norm_dx(c) for c in protected}
+    budget = max(0, 5 - len(protected_norm))  # slots for retrieval-only (non-closed-book) candidates
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    used = 0
+    for d in final:
+        nd = _norm_dx(str(d.get("diagnosis", "")))
+        if not nd or nd in seen:
+            continue
+        if nd in protected_norm:
+            result.append(d)
+            seen.add(nd)
+        elif used < budget:
+            result.append(d)
+            seen.add(nd)
+            used += 1
+        if len(result) >= 5 and protected_norm <= seen:
+            break
+    for c in protected:  # any protected candidate the model dropped without excluding → re-insert
+        if _norm_dx(c) not in seen:
+            result.append({"diagnosis": c, "supporting_features": [], "refuting_features": [], "floor_reinserted": True})
+            seen.add(_norm_dx(c))
+    result = result[:5]
+    for i, d in enumerate(result):
+        d["rank"] = i + 1
+    model_payload["ranked_differential"] = result
+    if result:
+        model_payload["final_diagnosis"] = result[0].get("diagnosis")
+
+
 _CONJUNCTION_RE = re.compile(r"\b(?:comorbid|coexist\w*|co-existing|overlapping|overlap|concurrent)\b", re.I)
 _CONJUNCTION_SPLIT = re.compile(r"\s+and\s+|;\s*|\s+\+\s+|\s+with (?:underlying|coexisting|concurrent)\s+", re.I)
 
@@ -1508,14 +2175,34 @@ def build_retrieval_queries(
     config: HarnessConfig = HarnessConfig(),
 ) -> tuple[RetrievalQuery, ...]:
     themes = QUERY_THEMES_BY_PRESET.get(preset) or QUERY_THEMES_BY_PRESET["general"]
+    theme_sources: list[tuple[str, str]] = []
     if round_index == 1:
+        feature_queries = build_case_feature_queries(case, preset=preset)
         contrast = _anchor_contrast_query(preset, case) if config.use_contrast_queries else None
-        themes = (*build_case_feature_queries(case, preset=preset), *((contrast,) if contrast else ()), *themes)
+        theme_sources.extend((query, "case_feature") for query in feature_queries)
+        if contrast:
+            theme_sources.append((contrast, "contrast_template"))
+        theme_sources.extend((theme, "preset_template") for theme in themes)
     else:
-        themes = (*build_followup_queries(case, preset=preset, evidence=evidence, synthesis=synthesis), *themes)
+        followups = build_followup_queries(
+            case,
+            preset=preset,
+            evidence=evidence,
+            synthesis=synthesis,
+            allow_preset_fallback=not config.use_answerer_query_planner,
+        )
+        if synthesis and synthesis.additional_queries:
+            followup_source = "reader_additional_query"
+        elif followups:
+            followup_source = "retrieved_lead_followup"
+        else:
+            followup_source = "preset_template"
+        theme_sources.extend((query, followup_source) for query in followups)
+        if not config.use_answerer_query_planner:
+            theme_sources.extend((theme, "preset_template") for theme in themes)
     seen = set(previous_queries)
     safe_queries: list[RetrievalQuery] = []
-    for index, theme in enumerate(themes, start=1):
+    for theme, generated_by in theme_sources:
         query = _sanitize_query(theme)
         if not query or query in seen:
             continue
@@ -1529,12 +2216,12 @@ def build_retrieval_queries(
                 source="pubmed",
                 intent="retrieve diagnostic discriminators without source-title or case-text shortcuts",
                 round_index=round_index,
-                generated_by="case_feature" if round_index == 1 and index <= len(build_case_feature_queries(case, preset=preset)) else "preset_template",
+                generated_by=generated_by,
             )
         )
         if len(safe_queries) >= max_queries:
             break
-    if not safe_queries:
+    if not safe_queries and not (config.use_answerer_query_planner and round_index > 1):
         safe_queries.append(
             RetrievalQuery(
                 query_id=f"r{round_index}q1",
@@ -1546,6 +2233,356 @@ def build_retrieval_queries(
             )
         )
     return tuple(safe_queries)
+
+
+def generate_frontier_followup_query_plan(
+    model_client: OpenAICompatibleChatClient,
+    case: ClinicalCase,
+    *,
+    preset: str,
+    max_queries: int,
+    max_rounds: int,
+    round_index: int,
+    previous_queries: tuple[str, ...],
+    evidence: tuple[RetrievalEvidence, ...],
+    synthesis: EvidenceSynthesis | None,
+    initial_query_plan: FrontierQueryPlan | None,
+    config: HarnessConfig = HarnessConfig(),
+    model_call_recorder: ModelCallRecorder | None = None,
+) -> FrontierQueryPlan:
+    prompt = build_frontier_followup_query_plan_prompt(
+        case,
+        preset=preset,
+        max_queries=max_queries,
+        max_rounds=max_rounds,
+        round_index=round_index,
+        previous_queries=previous_queries,
+        evidence=evidence,
+        synthesis=synthesis,
+        initial_query_plan=initial_query_plan,
+        config=config,
+    )
+    try:
+        result = model_client.chat(prompt=prompt, temperature=0.0, max_tokens=16000)
+        payload = parse_json_object(result.content)
+        plan = frontier_query_plan_from_payload(
+            case,
+            preset=preset,
+            payload=payload,
+            max_queries=max_queries,
+            config=config,
+        )
+        _record_model_call(
+            model_call_recorder,
+            stage="frontier_followup_query_plan",
+            actor="planner",
+            title=f"Frontier follow-up query plan · round {round_index}",
+            round_index=round_index,
+            prompt=prompt,
+            result=result,
+            parsed=payload,
+            max_tokens=16000,
+            temperature=0.0,
+        )
+        return plan
+    except Exception as exc:  # noqa: BLE001
+        _record_model_call(
+            model_call_recorder,
+            stage="frontier_followup_query_plan",
+            actor="planner",
+            title=f"Frontier follow-up query plan failed · round {round_index}",
+            round_index=round_index,
+            prompt=prompt,
+            error=str(exc),
+            max_tokens=16000,
+            temperature=0.0,
+        )
+        return FrontierQueryPlan(
+            case_id=case.case_id,
+            preset=preset,
+            reader_extraction_brief="No safe frontier follow-up query plan was available.",
+            fallback_used=True,
+            skepticism_notes=("frontier follow-up query planner failed; stopping is safer than generic retrieval",),
+        )
+
+
+def build_frontier_followup_query_plan_prompt(
+    case: ClinicalCase,
+    *,
+    preset: str,
+    max_queries: int,
+    max_rounds: int,
+    round_index: int,
+    previous_queries: tuple[str, ...],
+    evidence: tuple[RetrievalEvidence, ...],
+    synthesis: EvidenceSynthesis | None,
+    initial_query_plan: FrontierQueryPlan | None,
+    config: HarnessConfig = HarnessConfig(),
+) -> str:
+    included = _ranked_relevant_evidence(evidence, config)
+    evidence_payload = [
+        {
+            "evidence_id": item.evidence_id,
+            "title": item.title,
+            "abstract_snippet": item.abstract_snippet,
+            "full_text_snippet": item.full_text_snippet,
+        }
+        for item in included[:8]
+    ]
+    payload = {
+        "case_id": _model_visible_case_id(case.case_id),
+        "harness_preset": preset,
+        "round_index": round_index,
+        "retrieval_rounds_allowed": max_rounds,
+        "max_queries_this_round": max_queries,
+        "previous_queries": list(previous_queries),
+        "blocked_shortcuts": redacted_blocked_shortcuts(case),
+        "challenge_prompt": case.prompt,
+        "initial_frontier_query_plan": initial_query_plan.to_dict() if initial_query_plan else None,
+        "latest_evidence_synthesis": synthesis.to_dict() if synthesis else None,
+        "retrieved_evidence_so_far": evidence_payload,
+    }
+    return (
+        "You are the FRONTIER diagnostic planner for a FOLLOW-UP retrieval round in ClinicalHarness. "
+        "Do not answer the case yet. First update the diagnostic state from the case plus evidence already "
+        "gathered, then decide whether another targeted literature search would reduce uncertainty.\n\n"
+        "Be skeptical: do NOT issue generic background queries. Only propose a query if it opens a new, "
+        "case-matched discriminator, alternate terminology/synonym, associated entity raised by a paper, "
+        "or a direct A-vs-B distinction. If the current evidence is enough or every useful query was "
+        "already run, return an empty query_ideas list.\n\n"
+        "Anti-cheat rules: do not search source title, article title, DOI, PMCID, PMID, exact prompt text, "
+        "or any long copied phrase from the vignette.\n\n"
+        "Return strict JSON with:\n"
+        "{\n"
+        '  "problem_representation": "...",\n'
+        '  "possible_diagnoses": [{"diagnosis": "...", "supporting_case_facts": [], "refuting_or_missing_case_facts": [], "key_discriminator": "...", "current_weight": "high|medium|low"}],\n'
+        '  "initial_differential": [{"diagnosis": "...", "why_consider": "...", "what_would_refute": "..."}],\n'
+        '  "uncertainty_map": [{"question": "...", "why_it_matters": "...", "needed_evidence": "..."}],\n'
+        '  "query_ideas": [{"purpose": "...", "source": "pubmed|pmc|guideline|review", "query": "...", "expected_evidence": "..."}],\n'
+        '  "reader_extraction_brief": "...",\n'
+        '  "skepticism_notes": ["..."]\n'
+        "}\n\n"
+        f"Follow-up packet:\n{json.dumps(payload, indent=2, sort_keys=True)}\n"
+    )
+
+
+def generate_frontier_query_plan(
+    model_client: OpenAICompatibleChatClient,
+    case: ClinicalCase,
+    *,
+    preset: str,
+    max_queries: int,
+    max_rounds: int,
+    previous_queries: tuple[str, ...] = (),
+    config: HarnessConfig = HarnessConfig(),
+    model_call_recorder: ModelCallRecorder | None = None,
+) -> FrontierQueryPlan:
+    """Ask the final answerer to own the initial literature-exploration strategy.
+
+    This is frontier-mode query generation: the answerer decides what it is uncertain about and what
+    the reader should extract from sources. Returned query strings are still sanitized and anti-cheat
+    filtered before execution.
+    """
+
+    prompt = build_frontier_query_plan_prompt(
+        case,
+        preset=preset,
+        max_queries=max_queries,
+        max_rounds=max_rounds,
+        previous_queries=previous_queries,
+    )
+    try:
+        result = model_client.chat(prompt=prompt, temperature=0.0, max_tokens=16000)
+        payload = parse_json_object(result.content)
+        plan = frontier_query_plan_from_payload(
+            case,
+            preset=preset,
+            payload=payload,
+            max_queries=max_queries,
+            config=config,
+        )
+        if not plan.possible_diagnoses and not plan.initial_differential:
+            raise ValueError("frontier query plan produced an empty closed-book differential")
+        _record_model_call(
+            model_call_recorder,
+            stage="frontier_query_plan",
+            actor="planner",
+            title="Frontier query plan",
+            prompt=prompt,
+            result=result,
+            parsed=payload,
+            max_tokens=16000,
+            temperature=0.0,
+        )
+        return plan
+    except Exception as exc:  # noqa: BLE001 - fallback keeps the harness runnable.
+        _record_model_call(
+            model_call_recorder,
+            stage="frontier_query_plan",
+            actor="planner",
+            title="Frontier query plan failed",
+            prompt=prompt,
+            error=str(exc),
+            max_tokens=16000,
+            temperature=0.0,
+        )
+        return FrontierQueryPlan(
+            case_id=case.case_id,
+            preset=preset,
+            reader_extraction_brief=(
+                "No frontier query plan was available. Read sources skeptically and extract only "
+                "case-matched diagnostic discriminators."
+            ),
+            fallback_used=True,
+            skepticism_notes=("frontier query planner failed; deterministic fallback may be biased",),
+        )
+
+
+def build_frontier_query_plan_prompt(
+    case: ClinicalCase,
+    *,
+    preset: str,
+    max_queries: int,
+    max_rounds: int,
+    previous_queries: tuple[str, ...] = (),
+) -> str:
+    payload = {
+        "case_id": _model_visible_case_id(case.case_id),
+        "harness_preset": preset,
+        "retrieval_rounds_allowed": max_rounds,
+        "max_queries_this_round": max_queries,
+        "previous_queries": list(previous_queries),
+        "blocked_shortcuts": redacted_blocked_shortcuts(case),
+        "challenge_prompt": case.prompt,
+    }
+    return (
+        "You are the FRONTIER diagnostic planner for ClinicalHarness. Your job is not to answer yet; "
+        "your job is to first use your own medical knowledge fully, then decide what literature exploration "
+        "would most reduce diagnostic uncertainty.\n\n"
+        "Important ordering:\n"
+        "1. First, produce a CLOSED-BOOK diagnostic state from the case alone. Do not retrieve yet and do "
+        "not force a top-5. List as many possible diagnoses as are genuinely plausible, with the case facts "
+        "that support/refute each and what would distinguish it. If the answer is already likely in your "
+        "model weights, preserve that knowledge explicitly.\n"
+        "2. Then critique that diagnostic state: what are you uncertain about, what could be a mimic, what "
+        "specific information would change the differential, and what might be outside your weights?\n"
+        "3. Only after that, generate retrieval queries from those uncertainty gaps. Queries should test "
+        "discriminators, not merely confirm a favorite diagnosis.\n\n"
+        "Be skeptical: the later reader model and retrieved papers can be noisy or off-topic. Preserve base "
+        "rates and common diagnoses unless a specific case fact demands a rarer entity.\n\n"
+        "Anti-cheat rules for benchmark mode:\n"
+        "- Do not search for article title, source title, DOI, PMCID, PMID, or exact quoted prompt text.\n"
+        "- Do not try to identify the originating case report.\n"
+        "- Queries must be short concept queries from findings, syndromes, tests, imaging/pathology, "
+        "mimic pairs, criteria, or management discriminators.\n"
+        "- Avoid copying long contiguous phrases from the vignette.\n\n"
+        "Also write a reader_extraction_brief for a DeepSeek Pro reader. The brief should tell the reader "
+        "what to extract if a paper is relevant, what candidates/discriminators matter, and what would "
+        "refute your initial direction. The reader will read abstracts/full text snippets and may propose "
+        "additional synonym/associated-entity queries after reading.\n\n"
+        "Return strict JSON with:\n"
+        "{\n"
+        '  "problem_representation": "...",\n'
+        '  "possible_diagnoses": [{"diagnosis": "...", "supporting_case_facts": [], "refuting_or_missing_case_facts": [], "key_discriminator": "...", "current_weight": "high|medium|low"}],\n'
+        '  "initial_differential": [{"diagnosis": "...", "why_consider": "...", "what_would_refute": "..."}],\n'
+        '  "uncertainty_map": [{"question": "...", "why_it_matters": "...", "needed_evidence": "..."}],\n'
+        '  "query_ideas": [{"purpose": "...", "source": "pubmed|pmc|guideline|review", "query": "...", "expected_evidence": "..."}],\n'
+        '  "reader_extraction_brief": "...",\n'
+        '  "skepticism_notes": ["..."]\n'
+        "}\n\n"
+        f"Case packet:\n{json.dumps(payload, indent=2, sort_keys=True)}\n"
+    )
+
+
+def frontier_query_plan_from_payload(
+    case: ClinicalCase,
+    *,
+    preset: str,
+    payload: dict[str, Any],
+    max_queries: int,
+    config: HarnessConfig = HarnessConfig(),
+) -> FrontierQueryPlan:
+    possible_diagnoses = tuple(_dict_items(payload.get("possible_diagnoses")))[:12]
+    initial_differential = tuple(_dict_items(payload.get("initial_differential")))[:12]
+    if not initial_differential and possible_diagnoses:
+        initial_differential = possible_diagnoses
+    query_ideas: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in _dict_items(payload.get("query_ideas")):
+        raw_query = item.get("query")
+        if not isinstance(raw_query, str):
+            continue
+        query = _sanitize_query(raw_query)
+        if not query or query in seen:
+            continue
+        if config.eval_mode and _query_hits_source_shortcut(case, query):
+            continue
+        if config.eval_mode and _query_has_long_prompt_overlap(case.prompt, query):
+            continue
+        seen.add(query)
+        query_ideas.append(
+            {
+                "purpose": _optional_str(item, "purpose") or "frontier uncertainty reduction",
+                "source": _optional_str(item, "source") or "pubmed",
+                "query": query,
+                "expected_evidence": _optional_str(item, "expected_evidence") or "",
+            }
+        )
+        if len(query_ideas) >= max_queries:
+            break
+    return FrontierQueryPlan(
+        case_id=case.case_id,
+        preset=preset,
+        problem_representation=_optional_str(payload, "problem_representation"),
+        possible_diagnoses=possible_diagnoses,
+        initial_differential=initial_differential,
+        uncertainty_map=tuple(_dict_items(payload.get("uncertainty_map")))[:8],
+        query_ideas=tuple(query_ideas),
+        reader_extraction_brief=_optional_str(payload, "reader_extraction_brief"),
+        skepticism_notes=tuple(_str_items(payload.get("skepticism_notes")))[:6],
+    )
+
+
+def retrieval_queries_from_frontier_plan(
+    plan: FrontierQueryPlan,
+    *,
+    max_queries: int,
+    round_index: int = 1,
+    generated_by: str = "answerer_query_plan",
+) -> tuple[RetrievalQuery, ...]:
+    queries: list[RetrievalQuery] = []
+    for item in plan.query_ideas[:max_queries]:
+        query = item.get("query")
+        if not isinstance(query, str) or not query.strip():
+            continue
+        queries.append(
+            RetrievalQuery(
+                query_id=f"r{round_index}q{len(queries) + 1}",
+                query=query,
+                source="pubmed",
+                intent=_optional_str(item, "purpose") or "frontier-generated diagnostic discriminator search",
+                round_index=round_index,
+                generated_by=generated_by,
+            )
+        )
+    return tuple(queries)
+
+
+def _query_has_long_prompt_overlap(prompt: str, query: str) -> bool:
+    """Guard against model-generated queries copying long chunks of the vignette."""
+
+    prompt_tokens = [_norm_token(tok) for tok in prompt.split()]
+    query_tokens = [_norm_token(tok) for tok in query.split()]
+    prompt_tokens = [tok for tok in prompt_tokens if tok and tok not in _RELEVANCE_STOPWORDS]
+    query_tokens = [tok for tok in query_tokens if tok and tok not in _RELEVANCE_STOPWORDS]
+    if len(query_tokens) < 7:
+        return False
+    q = " ".join(query_tokens)
+    # A 7-token contiguous copied phrase is likely a shortcut query rather than a concept query.
+    for i in range(0, max(0, len(prompt_tokens) - 6)):
+        if " ".join(prompt_tokens[i:i + 7]) in q:
+            return True
+    return False
 
 
 # Generic disease-type words in mimic names that don't make a mimic "supported by the case."
@@ -1665,9 +2702,32 @@ def build_followup_queries(
     preset: str,
     evidence: tuple[RetrievalEvidence, ...],
     synthesis: EvidenceSynthesis | None,
+    allow_preset_fallback: bool = True,
 ) -> tuple[str, ...]:
     if synthesis and synthesis.additional_queries:
         return synthesis.additional_queries
+    # Lead-following fallback: when the distiller proposed no explicit next-round queries, derive new
+    # angles from what was already FOUND rather than repeating a generic query (which wastes forced
+    # rounds). Pursue the synthesis's surfaced entities, the unresolved mimic pair, and anchor risks —
+    # these are the leads the retrieved papers raised. This is what lets >=5 forced rounds keep opening
+    # genuinely new angles instead of spinning on the fallback string.
+    lead_queries: list[str] = []
+    if synthesis is not None:
+        for disc in synthesis.useful_discriminators[:2]:
+            ent = disc.get("entity") if isinstance(disc, dict) else None
+            marker = disc.get("required_test_or_marker") if isinstance(disc, dict) else None
+            if ent:
+                lead_queries.append(_sanitize_query(f"{ent} {marker or 'diagnosis discriminator confirmatory test'}"))
+        if synthesis.top_mimic_pair and len(synthesis.top_mimic_pair) == 2:
+            a, b = synthesis.top_mimic_pair
+            lead_queries.append(_sanitize_query(f"{a} versus {b} distinguishing features"))
+        for risk in synthesis.anchor_risks[:1]:
+            lead_queries.append(_sanitize_query(f"{risk} mimic atypical presentation case report"))
+    lead_queries = [q for q in lead_queries if q]
+    if lead_queries:
+        return tuple(dict.fromkeys(lead_queries))
+    if not allow_preset_fallback:
+        return ()
     features = extract_case_features(case.prompt)
     queries: list[str] = []
     if preset == "spindle_cell_pathology":
@@ -1947,13 +3007,14 @@ def distill_retrieved_evidence(
     evidence: tuple[RetrievalEvidence, ...],
     round_index: int,
     config: HarnessConfig = HarnessConfig(),
+    query_plan: FrontierQueryPlan | None = None,
     model_call_recorder: ModelCallRecorder | None = None,
 ) -> EvidenceSynthesis:
     prompt = build_evidence_distillation_prompt(
-        case, preset=preset, evidence=evidence, round_index=round_index, config=config
+        case, preset=preset, evidence=evidence, round_index=round_index, config=config, query_plan=query_plan
     )
     try:
-        result = client.chat(prompt=prompt, max_tokens=3072)
+        result = client.chat(prompt=prompt, temperature=0.0, max_tokens=16000)
         payload = parse_json_object(result.content)
         _record_model_call(
             model_call_recorder,
@@ -1964,7 +3025,8 @@ def distill_retrieved_evidence(
             prompt=prompt,
             result=result,
             parsed=payload,
-            max_tokens=3072,
+            max_tokens=16000,
+            temperature=0.0,
         )
     except Exception as exc:
         _record_model_call(
@@ -1975,7 +3037,8 @@ def distill_retrieved_evidence(
             round_index=round_index,
             prompt=prompt,
             error=str(exc),
-            max_tokens=3072,
+            max_tokens=16000,
+            temperature=0.0,
         )
         fallback = deterministic_evidence_synthesis(
             case, preset=preset, evidence=evidence, round_index=round_index, config=config
@@ -2004,6 +3067,7 @@ def build_evidence_distillation_prompt(
     evidence: tuple[RetrievalEvidence, ...],
     round_index: int,
     config: HarnessConfig = HarnessConfig(),
+    query_plan: FrontierQueryPlan | None = None,
 ) -> str:
     included = _ranked_relevant_evidence(evidence, config)
     evidence_payload = [
@@ -2024,15 +3088,25 @@ def build_evidence_distillation_prompt(
         "case_prompt": case.prompt,
         "preset_checklist": list(PRESET_CHECKLISTS[preset]),
         "finalization_gates": finalization_gates_for(preset, config),
+        "frontier_query_plan": query_plan.to_dict() if query_plan else None,
         "retrieved_evidence": evidence_payload,
     }
     return (
         "You are an evidence-distillation subagent inside ClinicalHarness. Extract only clinically relevant "
         "diagnostic discriminators from retrieved biomedical sources. Do not diagnose the case directly. Do not "
         "use source-title, DOI, PMCID, PMID, exact prompt text, or hidden chain-of-thought.\n\n"
+        + (
+            "SKEPTICAL READER CONTRACT: treat every retrieved paper and every prior harness hint as a noisy "
+            "lead, not a fact about this case. Use the frontier_query_plan and reader_extraction_brief to decide "
+            "what the frontier model wanted you to look for. Extract a claim only when it is tied to a concrete "
+            "case finding, a discriminator, a refuting finding, an alternate terminology/synonym, or a targeted "
+            "follow-up query. Generic review background must not be allowed to steer the final diagnosis.\n\n"
+            if (config.skeptical_evidence_mode or query_plan is not None) else ""
+        ) +
         "Return strict JSON with:\n"
         "{\n"
         '  "useful_discriminators": [{"evidence_id": "...", "entity": "...", "supports": [], "refutes": [], "required_test_or_marker": "..."}],\n'
+        '  "candidate_diagnoses": ["specific named diagnoses the retrieved SOURCES raise that are compatible with at least one case finding — include rare/recent entities and synonyms; literature extraction, not your verdict"],\n'
         '  "top_mimic_pair": ["...", "..."],\n'
         '  "anchor_risks": ["..."],\n'
         '  "additional_queries": ["..."],\n'
@@ -2050,7 +3124,15 @@ def build_evidence_distillation_prompt(
         "- If no, set differential_resolved=false and more_retrieval_needed=true, list the SPECIFIC "
         "remaining_uncertainty items (the discriminators/tests still missing), and put NEW, specific "
         "additional_queries that would resolve them (do not repeat queries already run). Only request "
-        "more retrieval when a concrete, answerable gap remains — not for open-ended reassurance.\n\n"
+        "more retrieval when a concrete, answerable gap remains — not for open-ended reassurance.\n"
+        "FOLLOW THE LEADS in additional_queries — the retrieved papers are the best source of better next "
+        "queries. Beyond the named gap, propose queries that pursue: (a) ALTERNATIVE WORDINGS / synonyms / "
+        "eponyms / older or newer nomenclature the papers use for the candidate entities (the literature "
+        "indexes the same disease under several names — search the ones the prompt's phrasing missed); "
+        "(b) ASSOCIATED entities the retrieved papers raise — a named syndrome's components, a gene's "
+        "allelic disorders, a drug's other reactions, a co-occurring condition; (c) any concrete LEAD a "
+        "paper surfaced (a specific test, a distinctive sign, a reported mimic) worth one focused query. "
+        "Diversify across rounds — each round should open a genuinely new angle, not rephrase a prior query.\n\n"
         f"Distillation packet:\n{json.dumps(payload, indent=2, sort_keys=True)}\n"
     )
 
@@ -2067,6 +3149,7 @@ def evidence_synthesis_from_payload(
         preset=preset,
         synthesis_round=round_index,
         useful_discriminators=tuple(_dict_items(payload.get("useful_discriminators"))),
+        candidate_diagnoses=tuple(_str_items(payload.get("candidate_diagnoses")))[:12],
         top_mimic_pair=tuple(_str_items(payload.get("top_mimic_pair")))[:2],
         anchor_risks=tuple(_str_items(payload.get("anchor_risks"))),
         additional_queries=tuple(_str_items(payload.get("additional_queries")))[:4],
@@ -2152,17 +3235,77 @@ def source_exclusion_decision(
     return False, None
 
 
+def _diagnosis_name_from_prior_item(item: dict[str, Any]) -> str | None:
+    for key in ("diagnosis", "entity", "candidate", "name", "final_diagnosis"):
+        value = item.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _closed_book_prior_payload(query_plan: FrontierQueryPlan | None) -> dict[str, Any] | None:
+    """Extract the answerer's pre-retrieval diagnostic state as a small final-prompt prior."""
+    if query_plan is None:
+        return None
+    candidates: list[dict[str, Any]] = []
+    high_or_medium: list[str] = []
+    seen: set[str] = set()
+    for item in query_plan.possible_diagnoses or query_plan.initial_differential:
+        name = _diagnosis_name_from_prior_item(item)
+        if not name:
+            continue
+        key = name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        weight = str(item.get("current_weight") or item.get("weight") or "").strip().lower()
+        candidates.append(
+            {
+                "diagnosis": name,
+                "current_weight": weight or None,
+                "supporting_case_facts": item.get("supporting_case_facts") or item.get("why_consider") or [],
+                "refuting_or_missing_case_facts": (
+                    item.get("refuting_or_missing_case_facts") or item.get("what_would_refute") or []
+                ),
+                "key_discriminator": item.get("key_discriminator") or item.get("needed_discriminator"),
+            }
+        )
+        if weight in {"high", "medium", "probable", "likely"}:
+            high_or_medium.append(name)
+        if len(candidates) >= 10:
+            break
+    if not candidates and not query_plan.problem_representation:
+        return None
+    return {
+        "source": "frontier_closed_book_before_retrieval",
+        "problem_representation": query_plan.problem_representation,
+        "candidate_policy": (
+            "Preserve high/medium closed-book candidates in the final top-5 unless case-matched "
+            "retrieved evidence directly refutes them. Retrieval is candidate expansion and "
+            "discriminator testing, not authority by itself."
+        ),
+        "possible_diagnoses": candidates,
+        "high_or_medium_diagnoses": high_or_medium[:6],
+        "uncertainty_map": [dict(item) for item in query_plan.uncertainty_map[:6]],
+        "skepticism_notes": list(query_plan.skepticism_notes[:6]),
+    }
+
+
 def build_retrieval_guided_final_prompt(
     case: ClinicalCase,
     *,
     preset: str,
     evidence: tuple[RetrievalEvidence, ...],
+    queries: tuple[RetrievalQuery, ...] = (),
     syntheses: tuple[EvidenceSynthesis, ...] = (),
     max_rounds: int = 1,
     config: HarnessConfig = HarnessConfig(),
     paper_analyses: tuple = (),
+    ensemble_view: dict[str, Any] | None = None,
+    query_plan: FrontierQueryPlan | None = None,
 ) -> str:
     included = _ranked_relevant_evidence(evidence, config)
+    query_by_id = {query.query_id: query for query in queries}
     # When per-paper extraction ran (ADR-040), the screened distilled notes replace raw abstracts as
     # the primary evidence — they are compact, so we can carry many more (decoupling papers-screened
     # from context-used) and raw abstracts shrink to a small backstop.
@@ -2178,7 +3321,8 @@ def build_retrieval_guided_final_prompt(
     screened_payload = [
         {"evidence_id": a.evidence_id, "title": a.title, "pmid": a.pmid,
          "relevant_excerpt": a.relevant_excerpt, "discriminators": list(a.discriminators),
-         "supports": list(a.supports), "refutes": list(a.refutes), "new_entity": a.new_entity}
+         "supports": list(a.supports), "refutes": list(a.refutes), "new_entity": a.new_entity,
+         "candidate_diagnoses": list(getattr(a, "candidate_diagnoses", ()) or ())}
         for a in _decisive[:5]
     ]
     raw_cap = 8
@@ -2186,6 +3330,11 @@ def build_retrieval_guided_final_prompt(
         {
             "evidence_id": item.evidence_id,
             "title": item.title,
+            "query_id": item.query_id,
+            "query_provenance": (
+                query_by_id[item.query_id].generated_by if item.query_id in query_by_id else None
+            ),
+            "source_query": query_by_id[item.query_id].query if item.query_id in query_by_id else None,
             "pmid": item.pmid,
             "pmcid": item.pmcid,
             "doi": item.doi,
@@ -2199,12 +3348,22 @@ def build_retrieval_guided_final_prompt(
         for item in included[:raw_cap]
     ]
     synthesis_payload = [synthesis.to_dict() for synthesis in syntheses]
+    closed_book_prior = (
+        _closed_book_prior_payload(query_plan) if config.use_bare_answer_preservation else None
+    )
     payload = {
         "case_id": _model_visible_case_id(case.case_id),
         "harness_preset": preset,
+        **({"ensemble_view": ensemble_view} if ensemble_view else {}),
         "retrieval_rounds_allowed": max_rounds,
         "retrieval_rounds_completed": max((synthesis.synthesis_round for synthesis in syntheses), default=1),
         "blocked_shortcuts": redacted_blocked_shortcuts(case),
+        "frontier_query_plan": query_plan.to_dict() if query_plan else None,
+        "closed_book_diagnostic_prior": closed_book_prior,
+        "literature_candidate_diagnoses": list(dict.fromkeys(
+            c for synthesis in syntheses for c in (synthesis.candidate_diagnoses or ()) if c
+        )) if config.use_bare_answer_preservation else [],
+        "retrieval_queries": [query.to_dict() for query in queries],
         "required_preset_checklist": list(PRESET_CHECKLISTS[preset]),
         "finalization_gates": finalization_gates_for(preset, config),
         "anchor_mimic_pair": list(ANCHOR_MIMIC_PAIRS_BY_PRESET.get(preset, ())) if config.use_gates else [],
@@ -2243,6 +3402,49 @@ def build_retrieval_guided_final_prompt(
         + integrity_clause +
         "Task: answer the diagnostic case using the challenge prompt, the preset checklist, and the retrieved "
         "PubMed evidence snippets. The evidence is imperfect and may be incomplete.\n\n"
+        + (
+            "SKEPTICAL EVIDENCE CONTRACT: every inserted artifact in this packet is a noisy lead, not ground "
+            "truth. That includes preset checklists, finalization gates, reader summaries, paper extracts, "
+            "rare-entity cards, and retrieved abstracts. Let retrieved evidence change rank only when it "
+            "matches a concrete case fact, supplies a discriminator present in the vignette, or directly "
+            "refutes your current leading diagnosis. Generic reviews and unsupported organism/subtype/gene/"
+            "antibody specificity should raise possibilities, not displace a well-supported diagnosis. "
+            "Query provenance matters: evidence from answerer_query_plan is usually more aligned with your "
+            "own uncertainty than fallback_after_preset_template evidence, but all evidence still needs a "
+            "case-fact match.\n\n"
+            if (config.skeptical_evidence_mode or query_plan is not None) else ""
+        ) +
+        (
+            "CLOSED-BOOK PRIOR PRESERVATION: closed_book_diagnostic_prior is YOUR pre-retrieval "
+            "diagnostic state from the case alone. It is not ground truth, but it protects useful "
+            "knowledge already in your model weights from being washed out by noisy retrieval. Treat "
+            "retrieval as candidate expansion plus discriminator testing. In the final top-5, preserve "
+            "each high/medium closed-book candidate that is still compatible with the vignette unless a "
+            "retrieved source supplies a concrete discriminator that matches a case fact and directly "
+            "refutes it. Generic reviews, reader speculation, and evidence from broad fallback queries "
+            "must not erase a well-supported prior candidate. If you exclude or demote a high/medium "
+            "prior candidate, record the specific case-matched reason in closed_book_prior_audit.\n\n"
+            "SPECIFICITY THROTTLE: use the most specific diagnosis the prompt and retrieved "
+            "discriminators DIRECTLY support — no more. Do NOT add an organism, gene, antibody, "
+            "malignant subtype, eponym, or etiologic qualifier unless the case contains direct evidence "
+            "for it; a broad clinical diagnosis is rank-1-correct when subtype evidence is absent. Do NOT "
+            "exclude or demote one of your closed-book candidates merely because retrieval surfaced a "
+            "rarer, more exotic, or more literature-salient mimic — only a case-matched refuting "
+            "discriminator justifies dropping it. When unsure, KEEP your closed-book candidate; retrieval "
+            "is here to ADD a diagnosis you missed or to PROMOTE one, not to replace a sound answer.\n\n"
+            "INCLUSIVE RANKS 2-5 (this is a TOP-5 RECALL task): rank 1 is your single best, conservative "
+            "answer — but ranks 2-5 are a RECALL NET, not four more committed bets. Populate them "
+            "GENEROUSLY: every distinct diagnosis in literature_candidate_diagnoses (entities the reader "
+            "found named in the retrieved sources), plus any raised by the reader synthesis, "
+            "screened_relevant_evidence, or the preset, that is compatible with at least one case finding "
+            "MUST appear among your five, even if you judge it less likely than your prior. A redundant "
+            "plausible candidate in ranks 2-5 costs you nothing; an omitted one loses the case. Do NOT "
+            "screen out a literature-surfaced candidate just because it was not your initial instinct or "
+            "the evidence is a 'noisy lead' — only omit it if a specific case finding directly refutes it. "
+            "Fill all five slots; never leave a slot on a weak duplicate when a real retrieval-surfaced "
+            "candidate is available.\n\n"
+            if closed_book_prior else ""
+        ) +
         "Before final closure, compare the top mimic pair and explicitly state which retrieved discriminator "
         "changed or failed to change the differential. Obey any finalization_gates in the packet; these are "
         "hard closure rules learned from prior model failures. Use evidence_synthesis and "
@@ -2250,6 +3452,16 @@ def build_retrieval_guided_final_prompt(
         "wide literature screen — each is the diagnosis-relevant content extracted from one paper); raw "
         "retrieved_evidence is supporting material. If the evidence is generic, irrelevant, or points to a "
         "familiar mimic, say so and use the case facts plus the checklist to avoid anchoring.\n\n"
+        + (
+            "ensemble_view (when present) is the output of a multi-angle reasoning pre-pass: each "
+            "diagnostic angle (localization, tempo, exposure/iatrogenic, can't-miss, coexisting-conditions, "
+            "specific-entity) argued independently, then a skeptical coordinator reconciled them. Use it to "
+            "DE-ANCHOR: a candidate raised by >=2 independent angles, or the coordinator's choice, deserves "
+            "serious weight even if it wasn't your first instinct; a can't-miss the coordinator flagged must "
+            "appear in your differential. It is advisory, not authoritative — the angles share biases and can "
+            "be wrong; weigh it against the evidence and case facts, do not just copy it.\n\n"
+            if ensemble_view else ""
+        ) +
         "specific_entities_to_consider lists rare entities a stored knowledge base raised from this case's "
         "features (with their discriminator and confirmatory test). Treat each as a hypothesis to actively "
         "confirm or exclude against the case — they are exactly the rare diagnoses models tend to miss by "
@@ -2258,6 +3470,31 @@ def build_retrieval_guided_final_prompt(
         "and DOI (copy them from retrieved_evidence) and a one-sentence note on HOW it contributed (which "
         "discriminator it supplied, which hypothesis it raised or refuted). This citation list is the primary "
         "deliverable for the clinician. Omit papers that did not contribute; never invent identifiers.\n\n"
+        + (
+            "MAXIMUM SPECIFICITY: for EACH ranked candidate, give the MOST SPECIFIC named diagnosis the "
+            "case findings actually support — do not stop at the broad syndrome if the prompt's findings "
+            "pin a subtype, etiology, or causative agent (e.g. name the specific drug for a drug-induced "
+            "syndrome, the specific organism, the specific gene/antibody when stated). CRITICAL — comorbid "
+            "conjunctions: if the prompt documents TWO co-existing conditions that EACH have their own "
+            "supporting findings (a primary disease PLUS a complication/comorbidity — e.g. a neurologic "
+            "disease AND a sleep study documenting apnea, or a primary tumor AND a paraneoplastic "
+            "syndrome), emit the CONJUNCTION 'A with/and B' as a SINGLE ranked entry rather than naming "
+            "only the dominant one. Only conjoin B when the prompt contains findings supporting B; never "
+            "append an unsupported qualifier. Before finalizing each candidate, ask: 'does the prompt "
+            "support a more specific entity or a co-existing condition I should add here?'\n\n"
+            if config.use_max_specificity else ""
+        ) +
+        (
+            "ETIOLOGIC-AXIS BREADTH (HARD): the history contains a temporal relationship between an "
+            "external factor and symptom onset (e.g. onset shortly AFTER a meal/ingestion/new drug, or "
+            "after sustained fever/heat, trauma, a procedure, or exposure). You MUST therefore include, "
+            "among your five, AT LEAST ONE explicit TOXIC/INGESTION/POISONING hypothesis (name the likely "
+            "toxin/drug/plant) AND AT LEAST ONE ACQUIRED/ENVIRONMENTAL hypothesis (e.g. heat/hyperthermia, "
+            "ischemic/metabolic injury) — naming the SPECIFIC entity, not a generic 'toxic-metabolic'. Do "
+            "not fill all five with hereditary or endogenous causes when an acquired/ingested cause fits the "
+            "temporal clue.\n\n"
+            if config.use_axis_breadth else ""
+        ) +
         "RANK YOUR TOP 5 — do not hedge: give your five most-likely SPECIFIC diagnoses, ranked most to "
         "least likely (ranked_differential[0] is your single best answer). Each must be a specific named "
         "entity (gene/syndrome/organism/etc. where the evidence supports it) — NOT a generic category and "
@@ -2273,6 +3510,7 @@ def build_retrieval_guided_final_prompt(
         "Return only strict JSON with:\n"
         "{\n"
         '  "problem_representation": "...",\n'
+        '  "closed_book_prior_audit": [{"diagnosis": "...", "final_status": "included|demoted|excluded", "case_matched_reason": "..."}],\n'
         '  "retrieved_evidence_used": [{"evidence_id": "...", "claim": "..."}],\n'
         '  "discriminator_summary": [{"discriminator": "...", "case_finding": "...", "direction": "..."}],\n'
         '  "ranked_differential": [{"rank": 1, "diagnosis": "...", "supporting_features": [], "refuting_features": []}, {"rank": 2, "diagnosis": "..."}, {"rank": 3, "diagnosis": "..."}, {"rank": 4, "diagnosis": "..."}, {"rank": 5, "diagnosis": "..."}],\n'
@@ -2358,11 +3596,19 @@ def _prompt_event_payload(prompt: str) -> dict[str, Any]:
                 "retrieved_evidence_count": len(packet.get("retrieved_evidence") or []),
                 "screened_relevant_evidence_count": len(packet.get("screened_relevant_evidence") or []),
                 "synthesis_count": len(packet.get("evidence_synthesis") or []),
+                "retrieval_query_count": len(packet.get("retrieval_queries") or []),
+                "frontier_query_plan_present": bool(packet.get("frontier_query_plan")),
+                "closed_book_prior_count": len(
+                    (packet.get("closed_book_diagnostic_prior") or {}).get("possible_diagnoses") or []
+                ),
                 "specific_entities_count": len(packet.get("specific_entities_to_consider") or []),
                 "finalization_gates_count": len(packet.get("finalization_gates") or []),
                 "blocked_shortcuts": packet.get("blocked_shortcuts"),
                 "finalization_gates": packet.get("finalization_gates"),
                 "specific_entities_to_consider": packet.get("specific_entities_to_consider"),
+                "frontier_query_plan": packet.get("frontier_query_plan"),
+                "closed_book_diagnostic_prior": packet.get("closed_book_diagnostic_prior"),
+                "retrieval_queries": packet.get("retrieval_queries"),
                 "screened_relevant_evidence": packet.get("screened_relevant_evidence"),
                 "retrieved_evidence": packet.get("retrieved_evidence"),
                 "evidence_synthesis": packet.get("evidence_synthesis"),
@@ -2381,6 +3627,69 @@ def _extract_prompt_case_packet(prompt: str) -> dict[str, Any] | None:
     except json.JSONDecodeError:
         return None
     return parsed if isinstance(parsed, dict) else None
+
+
+def _compact_final_answer_retry_prompt(original_prompt: str) -> str:
+    """Build a terse final-answer retry prompt for models that truncated verbose JSON."""
+    return _compact_final_answer_prompt(
+        _extract_prompt_case_packet(original_prompt) or {},
+        intro=(
+            "Your previous final-answer response was invalid because it was truncated before a complete "
+            "JSON object. Return ONLY one minified strict JSON object. Do not include markdown, prose, or "
+            "long feature lists. Keep every string under 25 words. Use the clinical case and evidence below "
+            "to commit to the most specific diagnosis."
+        ),
+    )
+
+
+def _compact_final_answer_prompt(packet: dict[str, Any], *, intro: str) -> str:
+    """Build the compact final-answer prompt from a case packet."""
+    compact_packet = {
+        "challenge_prompt": packet.get("challenge_prompt") or packet.get("prompt"),
+        "harness_preset": packet.get("harness_preset"),
+        "initial_clinical_assessment": packet.get("initial_clinical_assessment"),
+        "frontier_query_plan": packet.get("frontier_query_plan"),
+        "closed_book_diagnostic_prior": packet.get("closed_book_diagnostic_prior"),
+        "retrieval_queries": packet.get("retrieval_queries") or [],
+        "finalization_gates": packet.get("finalization_gates") or [],
+        "specific_entities_to_consider": packet.get("specific_entities_to_consider") or [],
+        "evidence_synthesis": packet.get("evidence_synthesis") or [],
+        "screened_relevant_evidence": packet.get("screened_relevant_evidence") or [],
+        "retrieved_evidence": _compact_retrieved_evidence(packet.get("retrieved_evidence") or []),
+    }
+    return (
+        f"{intro}\n\n"
+        "Required schema exactly:\n"
+        '{"problem_representation":"","closed_book_prior_audit":[],"retrieved_evidence_used":[],'
+        '"discriminator_summary":[],'
+        '"ranked_differential":[{"rank":1,"diagnosis":""},{"rank":2,"diagnosis":""},'
+        '{"rank":3,"diagnosis":""},{"rank":4,"diagnosis":""},{"rank":5,"diagnosis":""}],'
+        '"final_diagnosis":"","etiology":null,"recommended_next_step":"","key_papers":[],'
+        '"confidence":"low|medium|high","uncertainty_or_missing_information":[]}\n\n'
+        f"Case packet:\n{json.dumps(compact_packet, separators=(',', ':'), sort_keys=True)}"
+    )
+
+
+def _compact_retrieved_evidence(evidence: list[Any], *, limit: int = 8) -> list[dict[str, Any]]:
+    compact: list[dict[str, Any]] = []
+    for item in evidence:
+        if not isinstance(item, dict):
+            continue
+        compact.append({
+            "evidence_id": item.get("evidence_id"),
+            "title": item.get("title"),
+            "query_id": item.get("query_id"),
+            "query_provenance": item.get("query_provenance"),
+            "source_query": item.get("source_query"),
+            "pmid": item.get("pmid"),
+            "doi": item.get("doi"),
+            "abstract_snippet": item.get("abstract_snippet"),
+            "full_text_snippet": item.get("full_text_snippet"),
+            "relevance": item.get("relevance"),
+        })
+        if len(compact) >= limit:
+            break
+    return compact
 
 
 def _prompt_event_summary(prompt: str) -> str:
@@ -2646,7 +3955,8 @@ def write_retrieval_guided_results(root: Path, rows: tuple[RetrievalGuidedEvalRo
     tsv_path = root / "retrieval_guided_results.tsv"
     with tsv_path.open("w", encoding="utf-8") as handle:
         handle.write(
-            "case_id\tpreset\tscore\tscore_method\tjudge_match_type\tlexical_score\tagreement\tsamples\t"
+            "case_id\tpreset\tscore\tscore_method\tjudge_match_type\tlexical_score\tgold_rank\t"
+            "closed_book_gold_rank\tagreement\tsamples\t"
             "expected_diagnosis\tmodel_final_diagnosis\t"
             "query_count\tevidence_count\terror\tprompt_path\tquery_path\tevidence_path\tsynthesis_path\tresponse_path\n"
         )
@@ -2661,6 +3971,8 @@ def write_retrieval_guided_results(root: Path, rows: tuple[RetrievalGuidedEvalRo
                         row.score_method,
                         row.judge_match_type,
                         row.lexical_score,
+                        row.gold_rank,
+                        row.closed_book_gold_rank,
                         "" if row.agreement is None else f"{row.agreement:.2f}",
                         row.samples,
                         row.expected_diagnosis,
@@ -2680,15 +3992,23 @@ def write_retrieval_guided_results(root: Path, rows: tuple[RetrievalGuidedEvalRo
 
 
 def summarize_retrieval_guided_results(rows: tuple[RetrievalGuidedEvalRow, ...]) -> dict[str, int]:
-    counts: dict[str, int] = {}
+    counts: dict[str, int] = {
+        "cases": len(rows),
+        "errors": sum(1 for row in rows if row.error),
+        "scored_cases": sum(1 for row in rows if row.expected_diagnosis and not row.error),
+    }
     for row in rows:
         key = row.score or row.lexical_score
         counts[key] = counts.get(key, 0) + 1
     # Top-k accounting from the ranked differential: pass@k = gold appears at rank <= k.
     ranks = [row.gold_rank for row in rows if row.gold_rank is not None]
-    if ranks:
-        for k in range(1, 6):
-            counts[f"pass@{k}"] = sum(1 for r in ranks if r <= k)
+    counts["gold_rank_hits"] = len(ranks)
+    for k in range(1, 6):
+        counts[f"pass@{k}"] = sum(1 for r in ranks if r <= k)
+    closed_book_ranks = [row.closed_book_gold_rank for row in rows if row.closed_book_gold_rank is not None]
+    counts["closed_book_gold_rank_hits"] = len(closed_book_ranks)
+    for k in range(1, 6):
+        counts[f"closed_book_pass@{k}"] = sum(1 for r in closed_book_ranks if r <= k)
     return counts
 
 

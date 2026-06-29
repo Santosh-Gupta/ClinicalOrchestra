@@ -1,0 +1,50 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 580 250] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 1042 >>
+stream
+BT 0 0 0 rg /F1 13 Tf 164 224 Td (Etiologic-class frequency \(of 68 cases\)) Tj ET
+0.86 0.90 0.97 rg 0.20 0.30 0.55 RG 1.2 w 190 40 311 22 re B
+BT 0 0 0 rg /F1 9 Tf 82 47 Td (genetic / syndromic) Tj ET
+BT 0 0 0 rg /F1 10 Tf 509 47 Td (17) Tj ET
+0.86 0.90 0.97 rg 0.20 0.30 0.55 RG 1.2 w 190 72 256 22 re B
+BT 0 0 0 rg /F1 9 Tf 76 79 Td (toxic / drug-induced) Tj ET
+BT 0 0 0 rg /F1 10 Tf 454 79 Td (14) Tj ET
+0.86 0.90 0.97 rg 0.20 0.30 0.55 RG 1.2 w 190 104 183 22 re B
+BT 0 0 0 rg /F1 9 Tf 50 111 Td (autoimmune / inflammatory) Tj ET
+BT 0 0 0 rg /F1 10 Tf 381 111 Td (10) Tj ET
+0.86 0.90 0.97 rg 0.20 0.30 0.55 RG 1.2 w 190 136 128 22 re B
+BT 0 0 0 rg /F1 9 Tf 128 143 Td (infectious) Tj ET
+BT 0 0 0 rg /F1 10 Tf 326 143 Td (7) Tj ET
+0.86 0.90 0.97 rg 0.20 0.30 0.55 RG 1.2 w 190 168 91 22 re B
+BT 0 0 0 rg /F1 9 Tf 139 175 Td (vascular) Tj ET
+BT 0 0 0 rg /F1 10 Tf 289 175 Td (5) Tj ET
+0.86 0.90 0.97 rg 0.20 0.30 0.55 RG 1.2 w 190 200 73 22 re B
+BT 0 0 0 rg /F1 9 Tf 128 207 Td (neoplastic) Tj ET
+BT 0 0 0 rg /F1 10 Tf 271 207 Td (4) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000001335 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1405
+%%EOF

@@ -1,0 +1,4 @@
+judge_config,pass_counts,spread,cases_flipping,flip_rate
+single_vote_temp0,"67;72;69",5,16/88,0.18
+majority_of_3_temp0,"72;74;72",2,8/88,0.09
+single_vote_temp04,"64;69;72;72;75",11,24/88,0.27

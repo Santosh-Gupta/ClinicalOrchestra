@@ -25,3 +25,25 @@ local_private/
 *.private.json
 *.env.local
 .env.local
+
+# cross-model API keys (local only, never commit)
+.env.crossmodel.local
+
+# Internal working/debugging docs — not for public release
+docs/HANDOFF_*
+docs/workshop_submission/HANDOFF_*
+docs/AUDIT_ARBITRATION_*
+docs/*_triage_*.md
+docs/*_RUN_STATUS_*.md
+docs/LM4SCI_*.md
+docs/FINAL_RESULTS_*.md
+docs/ERROR_ANALYSIS_*.md
+docs/HARNESS_FRONTIER_REGRESSION_*.md
+docs/ROBUSTNESS_AUDIT_*.md
+docs/WORKSHOP_READINESS_*.md
+docs/WORKSHOP_CLAIM_*.md
+docs/WORKSHOP_SUBMISSION_PACKAGE_*.md
+docs/WORKSHOP_VENUE_*.md
+docs/paper_draft_*.md
+docs/paper_source_claim_audit_*.md
+docs/paper_workshop_compact_*.md

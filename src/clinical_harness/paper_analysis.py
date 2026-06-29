@@ -40,6 +40,10 @@ class PaperAnalysis(JsonSerializableMixin):
     supports: tuple[str, ...] = field(default_factory=tuple)
     refutes: tuple[str, ...] = field(default_factory=tuple)
     new_entity: str | None = None
+    # All named diagnoses this paper raises that are compatible with the case features (recall net for
+    # the diagnostician's inclusive top-5 tail). Broader than new_entity, which is a single not-yet-in-
+    # differential suggestion.
+    candidate_diagnoses: tuple[str, ...] = field(default_factory=tuple)
     proposed_queries: tuple[str, ...] = field(default_factory=tuple)
     error: str | None = None
 
@@ -76,6 +80,7 @@ def build_paper_analysis_prompt(
         '  "supports": ["hypothesis in this differential the paper supports"],\n'
         '  "refutes": ["hypothesis the paper argues against"],\n'
         '  "new_entity": "a diagnosis NOT yet in the differential that this paper suggests fits, or null",\n'
+        '  "candidate_diagnoses": ["specific named diagnoses this paper raises that fit at least one case finding; literature extraction, not your verdict"],\n'
         '  "proposed_queries": ["a NEW focused PubMed query (<=6 terms) this paper suggests trying next"]\n'
         "}\n\n"
         + reasoning_block +
@@ -93,7 +98,8 @@ def analyze_paper(
     differential_context: str,
     clinical_reasoning: str = "",
     model: str | None = None,
-    max_tokens: int = 4096,  # reasoning models spend tokens before the answer (ADR-017)
+    max_tokens: int = 16000,  # verbose models (Opus/DeepSeek) truncate at 4096 -> JSON parse fail ->
+    #                            paper silently dropped from evidence. Raised + client now flags truncation.
     model_call_recorder: ModelCallRecorder | None = None,
 ) -> PaperAnalysis:
     evidence_id = str(paper.get("evidence_id") or paper.get("pmid") or "")
@@ -181,6 +187,7 @@ def analyze_paper(
         supports=_strs("supports"),
         refutes=_strs("refutes"),
         new_entity=new_entity if isinstance(new_entity, str) and new_entity.strip() else None,
+        candidate_diagnoses=_strs("candidate_diagnoses")[:8],
         proposed_queries=_strs("proposed_queries"),
     )
 

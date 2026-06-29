@@ -265,10 +265,44 @@ def parse_json_object(text: str) -> dict[str, Any]:
     if stripped.startswith("```"):
         stripped = re.sub(r"^```(?:json)?\s*", "", stripped)
         stripped = re.sub(r"\s*```$", "", stripped)
-    payload = json.loads(stripped)
+    try:
+        # strict=False tolerates raw control characters inside string values, which some models
+        # (e.g. DeepSeek) emit unescaped — otherwise a valid object is rejected and the floor is disabled.
+        payload = json.loads(stripped, strict=False)
+    except json.JSONDecodeError:
+        # Robustness for chatty models (e.g. Gemini) that wrap JSON in prose or trail extra text
+        # ("Extra data" / "Expecting ',' delimiter"): extract the first balanced {...} object and parse it.
+        payload = _extract_first_json_object(stripped)
     if not isinstance(payload, dict):
         raise ValueError("model response must be a JSON object")
     return payload
+
+
+def _extract_first_json_object(text: str) -> dict[str, Any]:
+    start = text.find("{")
+    if start < 0:
+        raise ValueError("no JSON object found in model response")
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(text)):
+        c = text[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
+        elif c == '"':
+            in_str = True
+        elif c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return json.loads(text[start : i + 1], strict=False)
+    raise ValueError("no balanced JSON object found in model response")
 
 
 def lexical_score(model_final_diagnosis: str, answer_key: dict[str, Any]) -> str:

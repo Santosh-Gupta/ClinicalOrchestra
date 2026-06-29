@@ -64,6 +64,7 @@ def run_baseline_manifest_eval(
     progress: bool = False,
     concurrency: int = 1,
     max_tokens: int = 8192,
+    temperature: float = 0.0,
 ) -> tuple[RetrievalGuidedEvalRow, ...]:
     if concurrency < 1:
         raise ValueError("concurrency must be at least 1")
@@ -116,12 +117,17 @@ def run_baseline_manifest_eval(
                 # Reasoning models (e.g. deepseek-v4-pro) spend completion tokens on hidden
                 # reasoning first; too small a budget leaves zero tokens for the answer JSON and
                 # returns empty content (finish_reason=length). Keep this generous.
-                result = model_client.chat(prompt=prompt, temperature=0.0, max_tokens=max_tokens)
+                result = model_client.chat(prompt=prompt, temperature=temperature, max_tokens=max_tokens)
                 payload = parse_json_object(result.content)
                 value = payload.get("final_diagnosis")
                 final = value if isinstance(value, str) else None
                 response_path.write_text(
-                    json.dumps({"content": payload, "raw_latency_ms": result.latency_ms}, indent=2, sort_keys=True) + "\n",
+                    json.dumps(
+                        {"content": payload, "raw": result.raw, "raw_latency_ms": result.latency_ms},
+                        indent=2,
+                        sort_keys=True,
+                    )
+                    + "\n",
                     encoding="utf-8",
                 )
             except Exception as exc:  # noqa: BLE001 - record per-case failure, keep the batch going.

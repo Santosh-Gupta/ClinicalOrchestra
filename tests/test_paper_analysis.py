@@ -33,6 +33,7 @@ class PaperAnalysisTests(unittest.TestCase):
             "discriminators": ["CSF HSV PCR positive"],
             "supports": ["HSV encephalitis"],
             "refutes": ["autoimmune encephalitis"],
+            "candidate_diagnoses": ["HSV encephalitis"],
             "proposed_queries": ["HSV encephalitis atypical elderly"],
         }])
         a = analyze_paper(client, paper={"evidence_id": "pubmed:1", "pmid": "1", "title": "HSV review"},
@@ -40,6 +41,7 @@ class PaperAnalysisTests(unittest.TestCase):
         self.assertTrue(a.relevant)
         self.assertIn("HSV-1", a.relevant_excerpt)
         self.assertEqual(a.supports, ("HSV encephalitis",))
+        self.assertEqual(a.candidate_diagnoses, ("HSV encephalitis",))
         self.assertEqual(a.proposed_queries, ("HSV encephalitis atypical elderly",))
 
     def test_model_call_recorder_gets_prompt_and_parsed_payload(self) -> None:
@@ -109,6 +111,7 @@ class PaperAnalysisTests(unittest.TestCase):
         self.assertIn("CS", p)
         self.assertIn("DIFF", p)
         self.assertIn("most papers are not relevant", p)
+        self.assertIn('"candidate_diagnoses"', p)
 
 
 if __name__ == "__main__":

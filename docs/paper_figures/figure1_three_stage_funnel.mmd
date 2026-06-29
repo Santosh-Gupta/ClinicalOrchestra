@@ -1,0 +1,8 @@
+flowchart LR
+  A["All validated cases (N)"] --> S1{"Stage 1<br/>bare Flash"}
+  S1 -->|pass ~73-84%| P1["solved by weak model"]
+  S1 -->|fail| S2{"Stage 2<br/>bare Pro"}
+  S2 -->|pass| P2["needed stronger model"]
+  S2 -->|fail = double-failure| S3{"Stage 3<br/>Flash + harness"}
+  S3 -->|pass| P3["harness lift"]
+  S3 -->|fail| RES["residual (~75% gold artifacts)"]

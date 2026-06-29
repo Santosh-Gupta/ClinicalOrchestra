@@ -71,6 +71,21 @@ class RateLimitTests(unittest.TestCase):
         client = OpenAICompatibleChatClient(api_key="k", base_url="http://x", model="m")
         self.assertIsInstance(client.rate_limiter, NoOpRateLimiter)
 
+    def test_responses_text_extracts_output_parts(self) -> None:
+        from clinical_harness.model_client import _responses_text
+
+        raw = {
+            "output": [
+                {
+                    "content": [
+                        {"type": "output_text", "text": '{"final_diagnosis": "x"'},
+                        {"type": "output_text", "text": '}'},
+                    ]
+                }
+            ]
+        }
+        self.assertEqual(_responses_text(raw), '{"final_diagnosis": "x"}')
+
 
 if __name__ == "__main__":
     unittest.main()

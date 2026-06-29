@@ -71,14 +71,14 @@ environment controls whether public submissions may call PubMed and model APIs.
 Install the Python package:
 
 ```bash
-python3 -m pip install -e .
+python3.11 -m pip install -e .
 ```
 
 Run the viewer backend:
 
 ```bash
 cd viewer/backend
-python3 -m venv .venv && . .venv/bin/activate
+python3.11 -m venv .venv && . .venv/bin/activate
 pip install -e .
 python -m clinical_viewer
 ```
@@ -128,6 +128,15 @@ continues and writes the same artifacts and event ledgers for later replay.
 
 ## Documentation
 
+- **[Latest LM4Sci handoff](docs/HANDOFF_20260624.md): start here for the current workshop-paper
+  state** — audit approval packet, validated preflight, remaining provider/data/TeX gates, and exact
+  next actions for the next agent.
+- **[Audit approval packet](docs/AUDIT_ARBITRATION_APPROVAL_PACKET_20260623.md): user-veto packet
+  before manifest cleanup** — 14 drops, 9 mends, one unresolved review case, and denominator changes.
+- **[Operator Runbook](docs/OPERATOR_RUNBOOK.md): start here to run the harness on new cases** — env
+  setup, validating a new batch, the 3-stage eval protocol (commands), analyzing outputs (pass@k,
+  gold_rank, failure triage), and the rules for proposing changes. For multi-agent handoff.
+- **[AGENTS.md](AGENTS.md): read before changing anything** — the decision-trail rules across agents.
 - [Architecture](docs/architecture.md): core objects, retrieval stages, and evaluation modes.
 - [Quickstart](docs/quickstart.md): install, test, and run the current PubMed CLI.
 - [PubMed Search Guide](docs/pubmed_search.md): practical query patterns for diagnostic case work.
@@ -160,7 +169,7 @@ export NCBI_EMAIL="you@example.com"
 Install locally:
 
 ```bash
-python3 -m pip install -e .
+python3.11 -m pip install -e .
 ```
 
 Search PubMed:
@@ -269,7 +278,7 @@ clinical-harness pubmed search \
 Run tests:
 
 ```bash
-PYTHONPATH=src python3 -m unittest discover -s tests -v
+PYTHONPATH=src python3.11 -m unittest discover -s tests -v
 ```
 
 The package currently has no runtime dependencies outside the Python standard library.

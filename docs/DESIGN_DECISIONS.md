@@ -324,11 +324,13 @@ default), measuring effect on the third-100 double-failures with raised breadth 
 max-queries 4). **⚠️ Do not** pour raw paper text into the main diagnostic context; and when raising
 breadth, keep the extractor ON or you just discard more.
 
-### ADR-041 — Multi-angle diagnostic ensemble. (Core built + validated; consolidation calibration open)
+### ADR-041 — Multi-angle diagnostic ensemble. (HISTORICAL — superseded by ADR-046 rejection)
 Independent angle-agents (localization, tempo, exposure/iatrogenic, can't-miss, molecular,
 common-mimic-skeptic) → consolidating coordinator; structurally forces the angles a single chain
 skips (the hard-24 failure modes). Gate on difficulty so easy cases stay cheap. **Anchors:**
 `diagnostic_ensemble.py` (built, `tests/test_diagnostic_ensemble.py`), `docs/multi_agent_design_20260614.md`.
+**Superseded 2026-06-23:** see ADR-046. The full 88-case A/B with `JUDGE_VOTES=3` found the ensemble
+regressed pass@5 and pass@1, so this earlier design note is retained only as historical context.
 **Validated 2026-06-14:** the angles *do* surface the right hypothesis the single chain missed (the
 can't-miss angle independently found HSV); the **can't-miss veto is a precision/recall knob** that
 oscillates under single-case tuning + run-to-run variance — it must be calibrated on the full hard set
@@ -346,6 +348,125 @@ string to carry the safety call.
 A continuous agent that watches the differential + papers' proposed queries, dedupes against
 already-run queries, keeps issuing focused queries until resolution. The adaptive-rounds signal
 promoted into its own process. **Anchors:** `docs/scaled_retrieval_design_20260614.md`.
+
+### ADR-044 — Max-specificity / conjunction-emission lever. (REJECTED — null vs measured variance floor)
+**Context:** twelfth-wave's dominant failure was conjunction/qualifier golds — the model named the primary
+component (often rank 1) but omitted a supported second component (e.g. narcolepsy + PSG-documented apnea).
+**Tried:** gated `--max-specificity` / `use_max_specificity` prompt clause pushing maximal specificity and
+comorbid conjunctions. **Result:** A/B (no-retrieve, temp 0, 88 cases) ALL +2 / target-failures −1 /
+control +3 — **+2 is below the measured production variance floor (spread 5 across identical temp-0
+re-runs; ADR-045)**, i.e. noise. It also failed mechanically (target rank-1 still omitted the conjunction).
+**Flag stays OFF**; left for reproducibility. ⚠️ Do not enable without a >floor effect.
+
+### ADR-048 — Post-cutoff sets are HELD-OUT TEST; never tune the harness on them. (Accepted — integrity)
+**Decision (project owner):** the post-cutoff waves (15th, 16th, … `publication_date ≥ 2026-02-01`) are a
+**held-out test set** for contamination-controlled and cross-model evaluation. They may be *scored*, but
+the harness, prompts, gates, knowledge pack, presets, and validators must **never be developed, tuned, or
+selected using them** — doing so is data leakage and invalidates the contamination control. All runs to
+date have been eval-only (no tuning). Harness development uses the regular dev waves only. **⚠️ Do not**
+look at post-cutoff failures to motivate a harness change; if a change is inspired by them, it must be
+validated on the dev sets and the post-cutoff set re-scored only as a final, untouched test.
+**Publication:** the failure-selected hard subset (cases that fail bare DeepSeek Flash) may be *released*
+(`data/eval/publish/flash_failures_hard_cases.jsonl`, 151 cases incl. 81 post-cutoff) — releasing ≠
+tuning. The remaining (Flash-solved) cases stay reserved.
+
+### ADR-049 — Post-audit data-quality cleanup of the 81 post-cutoff hard cases. (Accepted — integrity)
+**Context:** three frontier auditors (opus-4.8, gpt-5.4, gpt-5.5) reviewed the 81 post-cutoff hard cases
+for leakage / insufficient starting point. They **over-flag** (70/81 flagged by ≥2; only 3 clean by all
+3), so flags were treated as a triage signal, not a verdict; each was source-checked by hand.
+**Decision (project owner approved, "mend as much as possible"):** apply a **mend-maximal** slate —
+**13 drops, 11 mends, 0 unresolved** — to both `data/eval/crossmodel/flash_fail_postcutoff.jsonl`
+(81→**68**) and `data/eval/publish/flash_failures_hard_cases.jsonl` (151→**138**). Mends are
+source-grounded prompt repairs only (delete post-question outcome leaks, move a result before the
+question, rephrase a diagnostic alias to descriptive findings); **no gold was relaxed, broadened, or
+rewritten.** Two cases the prior pass marked DROP were converted to MENDs (PMC13167955 gratuitous PAH
+label deleted; PMC13154095 "primary VF" alias rephrased) because the gold stays determinable from the
+legitimate workup; the former review case (PMC13149065, EPP) was DROPPED — its only decisive
+discriminator (FECH/erythrocyte protoporphyrin) is absent and adding it would leak the answer.
+**Tooling:** `scripts/preview_audit_arbitration_cleanup.py` is the single source of truth (DROP_IDS +
+MEND_OPERATIONS) and now has an idempotent `--apply` that backs up to `*.pre_audit_cleanup.bak`. Lane
+result files were pruned to the 68-case set so scores reflect passes among **retained** cases (e.g.
+GPT-5.4 50/68, V4-Pro 30/68). **This is a data-quality fix, not harness tuning (ADR-048 still holds).**
+**⚠️ Caveat — pending:** the 11 mended prompts still carry their **pre-mend** judge scores (uniform
+across all models, so the panel stays internally comparable); a full mended-case re-score across the
+panel is owed once provider credits are restored. **Anchors:**
+`docs/AUDIT_ARBITRATION_PROPOSAL_20260623.md`, `docs/AUDIT_ARBITRATION_APPROVAL_PACKET_20260623.md`.
+
+### ADR-047 — ≥5-round lead-following retrieval. (REJECTED — null/negative; dilution reconfirmed)
+**Context:** the idea of ≥5 retrieval rounds where each round follows leads from the prior round
+(alternative wordings/eponyms, associated entities, concrete leads). **Built it properly:** strengthened
+the distiller to propose lead-following `additional_queries`, added an evidence-derived lead fallback so
+forced rounds open new angles instead of repeating a generic query, verified rounds genuinely diversify
+(post-diarrheal → GBS variant → Miller Fisher → anti-GQ1b on a novel case; serotonin-syndrome → heat
+stroke on a hard one). **A/B** (full retrieval, JUDGE_VOTES=3 floor≈2, 39 cases): **pass@5 −1, pass@1
+−4**, avg evidence/case **16→68 (4×)**, **0 fail→pass**. The lead-following works mechanically but the 4×
+evidence DILUTES and de-ranks correct rank-1s. **Reconfirms the standing thesis: retrieval VOLUME hurts;
+the bottleneck is SELECTION not retrieval — even targeted lead-following doesn't escape it.** Kept the
+distiller lead-following improvements (strictly better when distilling) but **do NOT force ≥5 rounds**;
+adaptive 1–3 rounds remains the default. The differential-driven variant (queries learn from the main
+reasoning thread, ADR-042) is untested and would need to AVOID the dilution (tighter selection /
+stop-on-discriminator) to have a chance.
+
+### ADR-046 — Multi-angle ensemble + coordinator. (REJECTED — measurably HURTS; multi-agent not the bottleneck)
+**Context:** the "parallel reasoning chains + reconciler" idea (GPT-Pro-style); already built as
+`diagnostic_ensemble.py` (ADR-041, 6 angle agents + skeptical coordinator) but never wired/tested.
+**Tried:** wired it as a gated (`--ensemble` / `use_ensemble`) reasoning pre-pass injecting the angles'
+candidates + coordinator's reconciliation into the final answerer. **A/B** (no-retrieve, **JUDGE_VOTES=3**
+so the floor is ~2, 88 cases): **pass@5 90%→85% (−4), pass@1 −11** — a clear regression, well beyond the
+floor; 6 pass→fail vs 2 fail→pass. **Mechanism:** the coordinator's skeptical, etiology-focused
+reconciliation makes the final answer TERSER and LESS specific, de-anchoring the model off an already-
+correct, more-complete rank-1 (e.g. "carotid dissection causing bilateral globus pallidus infarcts" →
+"carotid dissection", dropping the gold phrase). **Verdict:** the base single-chain reasoner is already
+strong; layering a multi-agent ensemble adds noise and de-anchors. Flag stays OFF. **This is the THIRD
+motivated reasoning lever to fail against the floor (ADR-043 axis, ADR-044 specificity, ADR-046
+ensemble) — strong evidence the harness bottleneck is NOT reasoning architecture but gold quality +
+under-determination.** ⚠️ Do not enable; do not re-attempt multi-agent reasoning without a >floor lift
+in hand.
+
+### ADR-045 — The variance floor is ~5 cases / 88 (judge nondeterminism); gate all fixes on it. (Accepted)
+**Measured (2026-06-19):** identical config (bare Flash + LLM judge), same 88 cases, temp 0 → pass counts
+[67,72,69], **spread 5, 18% of cases flip pass↔fail** between runs (judge is stochastic; DeepSeek isn't
+bit-deterministic at temp 0). temp 0.4 → spread 11. **Decision:** a harness fix must move **>~6 % of N**
+(here >5 cases) to count as real; report **mean±range over ≥3 seeds**; never adopt on a single-run delta
+below the floor. Both motivated reasoning levers (ADR-043 axis-breadth, ADR-044 max-specificity) were null
+against it. **⚠️ Do not** trust +1/+2 deltas at small N. Tooling: `baseline-eval --temperature`.
+**Mitigation that works:** **`JUDGE_VOTES=3`** (majority-vote judging, judge.py) **halves the floor** —
+measured spread 5→2, flip-rate 18%→9% on the same 88 cases. Recommended default for any A/B going
+forward (it makes >2-case effects measurable). Cost: 3× judge calls (cheap Flash).
+
+### ADR-043 — Etiologic-axis-breadth differential lever. (REJECTED — population A/B was null; flag stays OFF)
+**Result (2026-06-17):** tested and **rejected**. Targeted 2-case test was encouraging (hyperthermia
+PMC11617243 recovered to rank 1 with a hardened "must include a toxic + acquired hypothesis" clause),
+but the **population A/B** (`--no-retrieve`, temp 0, baseline vs lever on 170 cleaned dev cases) was a
+wash: precipitant subset 87%→85% (**−1**), control 83%→85% (+2), overall **85%→85% (+1/170)** with 11
+fail→pass and 10 pass→fail — bidirectional churn, net noise. On the *target* subset it slightly
+regressed. The lever displaces correct answers (forcing spurious toxic/acquired hypotheses) about as
+often as it helps. The aconitine case stayed wrong even when forced — a genuine knowledge gap, not a
+breadth gap. **Lesson (promoted to journal): a lever that wins on hand-picked cases can be net-zero at
+population scale; never adopt on targeted wins — the population A/B is the gate.** The flag
+(`use_axis_breadth` / `--axis-breadth`) and `scripts/build_axis_experiment.py` are retained OFF for
+reproducibility; **⚠️ do not flip on** — it has been measured and does not help.
+
+<details><summary>Original (experimental) rationale</summary>
+
+### ADR-043 (original) — Etiologic-axis-breadth differential lever. (Experimental)
+**Context:** two independent waves showed the same harness-reasoning failure — the model missed an
+acquired/environmental cause because all five candidates collapsed to one endogenous class *despite an
+acute precipitant in the history*: tenth-wave PMC11617243 (sustained 40 °C → cerebellar ataxia; top-5 all
+hereditary ataxias) and eleventh-wave PMC10740282 (perioral paresthesia "shortly after meals" → aconitine
+poisoning; top-5 all endogenous "spell" causes, no toxin/ingestion hypothesis).
+**Decision:** add a gated `HarnessConfig.use_axis_breadth` flag (CLI `--axis-breadth`) that injects a
+**self-gating, bidirectional** clause into the final-answer prompt: *when the history has an acute
+precipitant/exposure, the top-5 must span etiologic axes (genetic/acquired/toxic-exposure/infectious/
+inflammatory/neoplastic/vascular); if none, ignore and rank by base rates.* This obeys the no-difficulty-gate
+rule (general lever, inert when irrelevant). **Status: NOT adopted.** Per the measurement-wall principle
+(single-run deltas at small N are noise), it ships OFF and must clear a **multi-seed A/B** — pass@5 on the
+precipitant subset (should-help/must-not-hurt) vs the no-precipitant control (must stay inert) — before
+default-on. Experiment scaffolding: `scripts/build_axis_experiment.py`, run via
+`retrieval-guided-eval --no-retrieve [--axis-breadth]`. **Anchors:**
+`docs/eleventh_wave_checkpoint_triage_20260617.md`, `docs/tenth_wave_checkpoint_triage_20260617.md`.
+
+</details>
 
 ---
 

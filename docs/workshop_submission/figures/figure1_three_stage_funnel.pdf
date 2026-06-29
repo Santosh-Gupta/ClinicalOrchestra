@@ -1,0 +1,59 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 720 250] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 1452 >>
+stream
+BT 0 0 0 rg /F1 14 Tf 259 222 Td (Three-stage evaluation funnel) Tj ET
+0.97 0.98 0.99 rg 0.2 0.25 0.33 RG 1.2 w 35 105 120 50 re B
+BT 0 0 0 rg /F1 11 Tf 60 135 Td (All validated) Tj ET
+BT 0 0 0 rg /F1 10 Tf 83 119 Td (cases) Tj ET
+0.97 0.98 0.99 rg 0.2 0.25 0.33 RG 1.2 w 205 105 125 50 re B
+BT 0 0 0 rg /F1 11 Tf 248 135 Td (Stage 1) Tj ET
+BT 0 0 0 rg /F1 10 Tf 242 119 Td (Bare Flash) Tj ET
+0.97 0.98 0.99 rg 0.2 0.25 0.33 RG 1.2 w 380 105 125 50 re B
+BT 0 0 0 rg /F1 11 Tf 423 135 Td (Stage 2) Tj ET
+BT 0 0 0 rg /F1 10 Tf 422 119 Td (Bare Pro) Tj ET
+0.97 0.98 0.99 rg 0.2 0.25 0.33 RG 1.2 w 555 105 125 50 re B
+BT 0 0 0 rg /F1 11 Tf 598 135 Td (Stage 3) Tj ET
+BT 0 0 0 rg /F1 10 Tf 580 119 Td (Flash + harness) Tj ET
+0.2 0.25 0.33 RG 1.2 w 155 130 m 205 130 l S
+BT 0 0 0 rg /F1 10 Tf 175 137 Td (>) Tj ET
+0.2 0.25 0.33 RG 1.2 w 330 130 m 380 130 l S
+BT 0 0 0 rg /F1 10 Tf 350 137 Td (>) Tj ET
+0.2 0.25 0.33 RG 1.2 w 505 130 m 555 130 l S
+BT 0 0 0 rg /F1 10 Tf 525 137 Td (>) Tj ET
+0.93 0.99 0.96 rg 0.02 0.45 0.25 RG 1.2 w 215 35 105 34 re B
+BT 0 0 0 rg /F1 10 Tf 252 49 Td (Solved) Tj ET
+0.93 0.99 0.96 rg 0.02 0.45 0.25 RG 1.2 w 390 35 105 34 re B
+BT 0 0 0 rg /F1 10 Tf 410 49 Td (Strong solves) Tj ET
+1 0.97 0.93 rg 0.76 0.28 0.03 RG 1.2 w 565 35 105 34 re B
+BT 0 0 0 rg /F1 10 Tf 587 49 Td (Harness lift) Tj ET
+0.02 0.45 0.25 RG 1.2 w 267 105 m 267 69 l S
+0.02 0.45 0.25 RG 1.2 w 442 105 m 442 69 l S
+0.76 0.28 0.03 RG 1.2 w 617 105 m 617 69 l S
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000001745 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1815
+%%EOF

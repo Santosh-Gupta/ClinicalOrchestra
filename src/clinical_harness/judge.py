@@ -27,6 +27,7 @@ chat client.
 from __future__ import annotations
 
 import json
+import os
 import time
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -131,8 +132,32 @@ def judge_diagnosis_equivalence(
     last_exc: Exception | None = None
     result = None
     payload = None
+    # Majority-vote judging (ADR-045): the judge is stochastic even at temp 0 (~18% of verdicts flip
+    # run-to-run), which sets the benchmark's variance floor. JUDGE_VOTES>1 takes the majority of k
+    # independent verdicts, shrinking that floor so smaller real effects become measurable. Default 1
+    # preserves the original single-call behavior exactly.
+    votes = max(1, int(os.getenv("JUDGE_VOTES", "1")))
+    if votes > 1:
+        tally: list[dict[str, Any]] = []
+        for _ in range(votes):
+            try:
+                r = client.chat(prompt=prompt, temperature=0.0, max_tokens=max_tokens)
+                p = parse_json_object(r.content)
+                _record_model_call(
+                    model_call_recorder, prompt=prompt, result=r, parsed=p, max_tokens=max_tokens,
+                    temperature=0.0, expected=expected, candidate=candidate,
+                )
+                tally.append({"equivalent": bool(p.get("equivalent")), "payload": p, "result": r})
+            except Exception as exc:  # pragma: no cover - network/parse failure path
+                last_exc = exc
+        if tally:
+            yes = [t for t in tally if t["equivalent"]]
+            win = yes if len(yes) * 2 >= len(tally) else [t for t in tally if not t["equivalent"]]
+            payload, result = win[0]["payload"], win[0]["result"]
     # Retry transient API/parse hiccups before falling back.
     for attempt in range(_JUDGE_MAX_ATTEMPTS):
+        if payload is not None:
+            break
         try:
             result = client.chat(prompt=prompt, temperature=0.0, max_tokens=max_tokens)
             payload = parse_json_object(result.content)

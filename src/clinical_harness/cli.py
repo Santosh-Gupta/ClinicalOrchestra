@@ -218,6 +218,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Completion-token budget. Reasoning models (deepseek-v4-pro) spend tokens on hidden "
              "reasoning before the answer, so keep this generous or hard cases return empty.",
     )
+    baseline_eval_parser.add_argument(
+        "--temperature", type=float, default=0.0,
+        help="Sampling temperature. Default 0.0 is deterministic; set >0 (e.g. 0.4) for multi-seed "
+             "variance runs (re-run to different --out-dir per seed, then aggregate mean±range).",
+    )
     baseline_eval_parser.set_defaults(func=cmd_benchmark_baseline_eval)
 
     retrieval_guided_eval_parser = benchmark_subparsers.add_parser(
@@ -325,6 +330,36 @@ def build_parser() -> argparse.ArgumentParser:
              "--articles-per-query / --max-queries without context blowup.",
     )
     retrieval_guided_eval_parser.add_argument(
+        "--frontier-mode", action="store_true",
+        help="Frontier answerer owns round-1 query planning and writes the reader extraction brief; "
+             "also enables the skeptical evidence contract. Use with --max-rounds >=3 for multi-round runs.",
+    )
+    retrieval_guided_eval_parser.add_argument(
+        "--answerer-query-planner", action="store_true",
+        help="Ablation: ask the final answerer to generate round-1 retrieval queries, without enabling "
+             "the rest of --frontier-mode.",
+    )
+    retrieval_guided_eval_parser.add_argument(
+        "--no-answerer-query-fallback", action="store_true",
+        help="Ablation: when answerer query planning is enabled, do not fill unused/failed query slots "
+             "with deterministic fallback queries.",
+    )
+    retrieval_guided_eval_parser.add_argument(
+        "--answerer-query-fallback", action="store_true",
+        help="When --frontier-mode is enabled, explicitly allow deterministic fallback queries to fill "
+             "unused answerer-planned query slots. Off by default in frontier mode.",
+    )
+    retrieval_guided_eval_parser.add_argument(
+        "--skeptical-evidence-mode", action="store_true",
+        help="Tell reader/final prompts to treat every inserted artifact as a noisy lead that needs "
+             "case-fact matching before it can move the differential.",
+    )
+    retrieval_guided_eval_parser.add_argument(
+        "--bare-answer-preservation", action="store_true",
+        help="Keep the frontier answerer's closed-book diagnostic state visible through final ranking; "
+             "enabled automatically by --frontier-mode.",
+    )
+    retrieval_guided_eval_parser.add_argument(
         "--no-knowledge-pack", action="store_true",
         help="Ablation: do not inject stored knowledge-pack cards (rare-entity discriminators) into the prompt.",
     )
@@ -332,6 +367,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-eval-mode", action="store_true",
         help="Doctor-assist mode: do NOT exclude the source paper or inject anti-cheat guards. "
              "Default (eval mode on) forbids retrieving/reading the source paper for honest benchmarking.",
+    )
+    retrieval_guided_eval_parser.add_argument(
+        "--axis-breadth", action="store_true",
+        help="EXPERIMENTAL (ADR-043 REJECTED — null A/B). Left for reproducibility; do not enable.",
+    )
+    retrieval_guided_eval_parser.add_argument(
+        "--max-specificity", action="store_true",
+        help="EXPERIMENTAL (ADR-044 REJECTED — null A/B). Left for reproducibility; do not enable.",
+    )
+    retrieval_guided_eval_parser.add_argument(
+        "--ensemble", action="store_true",
+        help="EXPERIMENTAL (A/B pending): run the 6-angle diagnostic ensemble + skeptical coordinator "
+             "(ADR-041) as a reasoning pre-pass and inject its reconciled view into the final answerer. "
+             "~7 extra Flash calls/case. Validate via A/B against JUDGE_VOTES=3 before adopting.",
     )
     retrieval_guided_eval_parser.add_argument(
         "--feature-presets-only", action="store_true",
@@ -589,6 +638,7 @@ def cmd_benchmark_baseline_eval(args: argparse.Namespace) -> int:
         progress=args.progress,
         concurrency=args.concurrency,
         max_tokens=args.max_tokens,
+        temperature=args.temperature,
     )
     counts = summarize_baseline_results(rows)
     print(f"Wrote baseline (no-harness) eval artifacts: {args.out_dir}")
@@ -671,7 +721,17 @@ def cmd_benchmark_retrieval_guided_eval(args: argparse.Namespace) -> int:
             eval_mode=not args.no_eval_mode,
             use_knowledge_pack=not args.no_knowledge_pack,
             use_paper_extractor=args.paper_extractor,
+            use_answerer_query_planner=args.frontier_mode or args.answerer_query_planner,
+            answerer_query_fallback=(
+                args.answerer_query_fallback
+                or (not args.frontier_mode and not args.no_answerer_query_fallback)
+            ),
+            skeptical_evidence_mode=args.frontier_mode or args.skeptical_evidence_mode,
+            use_bare_answer_preservation=args.frontier_mode or args.bare_answer_preservation,
             use_rerank=args.rerank,
+            use_axis_breadth=args.axis_breadth,
+            use_max_specificity=args.max_specificity,
+            use_ensemble=args.ensemble,
         ),
     )
     counts = summarize_retrieval_guided_results(rows)

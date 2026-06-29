@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from clinical_harness.guided_eval import case_from_manifest_row
+from clinical_harness.model_client import ChatCompletionResult
 from clinical_harness.retrieval_guided_eval import (
     EvidenceSynthesis,
     HarnessConfig,
@@ -13,12 +14,21 @@ from clinical_harness.retrieval_guided_eval import (
     RetrievalQuery,
     _anchor_contrast_query,
     _article_relevance,
+    _closed_book_top5,
+    _compact_final_answer_prompt,
+    _enforce_closed_book_floor,
+    _union_top5_from_samples,
+    _extract_prompt_case_packet,
+    _generate_final_answer,
     _ranked_relevant_evidence,
     build_retrieval_guided_final_prompt,
     build_retrieval_queries,
+    build_frontier_query_plan_prompt,
     collect_pubmed_evidence,
     enrich_evidence_with_full_text,
     case_anchor_terms,
+    frontier_query_plan_from_payload,
+    retrieval_queries_from_frontier_plan,
     run_retrieval_guided_manifest_eval,
     should_run_another_round,
     source_exclusion_decision,
@@ -66,6 +76,142 @@ class RetrievalGuidedEvalTests(unittest.TestCase):
         self.assertNotIn("Photo Quiz Source Title", joined)
         self.assertNotIn("PMC12710301", joined)
         self.assertNotIn("10.0000/example", joined)
+
+    def test_frontier_query_plan_filters_shortcuts_and_builds_queries(self) -> None:
+        case = case_from_manifest_row(_manifest_row())
+        plan = frontier_query_plan_from_payload(
+            case,
+            preset="mold_identification",
+            max_queries=3,
+            config=HarnessConfig(eval_mode=True),
+            payload={
+                "problem_representation": "Invasive fungal sinusitis.",
+                "possible_diagnoses": [
+                    {
+                        "diagnosis": "Invasive Microascus sinusitis",
+                        "supporting_case_facts": ["mold sinusitis"],
+                        "refuting_or_missing_case_facts": ["sequencing not shown"],
+                        "key_discriminator": "morphology or sequencing",
+                        "current_weight": "medium",
+                    }
+                ],
+                "initial_differential": [{"diagnosis": "Microascus sinusitis"}],
+                "uncertainty_map": [{"question": "Which mold is supported?"}],
+                "query_ideas": [
+                    {"purpose": "unsafe", "query": "Photo Quiz Source Title PMC12710301"},
+                    {"purpose": "organism discriminator", "query": "invasive mold sinusitis morphology conidia sequencing"},
+                ],
+                "reader_extraction_brief": "Extract organism-level mycology discriminators.",
+                "skepticism_notes": ["Do not accept a mold genus without morphology or sequencing."],
+            },
+        )
+
+        queries = retrieval_queries_from_frontier_plan(plan, max_queries=3)
+
+        self.assertEqual(len(queries), 1)
+        self.assertEqual(queries[0].generated_by, "answerer_query_plan")
+        self.assertIn("mold", queries[0].query.lower())
+        self.assertNotIn("Photo Quiz Source Title", queries[0].query)
+        self.assertEqual(plan.reader_extraction_brief, "Extract organism-level mycology discriminators.")
+        self.assertEqual(plan.possible_diagnoses[0]["diagnosis"], "Invasive Microascus sinusitis")
+
+    def test_frontier_query_plan_prompt_asks_for_diagnostic_state_before_queries_not_top5(self) -> None:
+        case = case_from_manifest_row(_manifest_row())
+        prompt = build_frontier_query_plan_prompt(
+            case,
+            preset="mold_identification",
+            max_queries=4,
+            max_rounds=3,
+        )
+
+        self.assertIn("First, produce a CLOSED-BOOK diagnostic state", prompt)
+        self.assertIn("do not force a top-5", prompt)
+        self.assertIn('"possible_diagnoses"', prompt)
+        self.assertLess(prompt.index("CLOSED-BOOK diagnostic state"), prompt.index("generate retrieval queries"))
+
+    def test_frontier_query_plan_is_injected_with_skeptical_contract_and_provenance(self) -> None:
+        case = case_from_manifest_row(_manifest_row())
+        plan = frontier_query_plan_from_payload(
+            case,
+            preset="mold_identification",
+            max_queries=1,
+            config=HarnessConfig(eval_mode=True),
+            payload={
+                "query_ideas": [{"purpose": "organism discriminator", "query": "invasive mold sinusitis sequencing"}],
+                "reader_extraction_brief": "Extract organism-level mycology discriminators.",
+            },
+        )
+        queries = retrieval_queries_from_frontier_plan(plan, max_queries=1)
+        evidence = (
+            RetrievalEvidence(
+                evidence_id="pubmed:123",
+                query_id="r1q1",
+                rank=1,
+                pmid="123",
+                pmcid=None,
+                doi=None,
+                title="Mold sinusitis sequencing",
+                journal=None,
+                publication_year=None,
+                publication_types=(),
+                url=None,
+                abstract_snippet="Sequencing can identify invasive molds.",
+                relevance=3,
+            ),
+        )
+
+        prompt = build_retrieval_guided_final_prompt(
+            case,
+            preset="mold_identification",
+            evidence=evidence,
+            queries=queries,
+            query_plan=plan,
+            config=HarnessConfig(skeptical_evidence_mode=True),
+        )
+        packet = _extract_prompt_case_packet(prompt) or {}
+
+        self.assertIn("SKEPTICAL EVIDENCE CONTRACT", prompt)
+        self.assertEqual(packet["frontier_query_plan"]["reader_extraction_brief"], "Extract organism-level mycology discriminators.")
+        self.assertEqual(packet["retrieval_queries"][0]["generated_by"], "answerer_query_plan")
+        self.assertEqual(packet["retrieved_evidence"][0]["query_provenance"], "answerer_query_plan")
+
+    def test_bare_answer_preservation_injects_closed_book_prior(self) -> None:
+        case = case_from_manifest_row(_manifest_row())
+        plan = frontier_query_plan_from_payload(
+            case,
+            preset="mold_identification",
+            max_queries=1,
+            config=HarnessConfig(eval_mode=True),
+            payload={
+                "problem_representation": "Invasive mold sinusitis.",
+                "possible_diagnoses": [
+                    {
+                        "diagnosis": "Invasive Microascus sinusitis",
+                        "supporting_case_facts": ["invasive mold sinusitis"],
+                        "refuting_or_missing_case_facts": ["genus not confirmed"],
+                        "key_discriminator": "sequencing and morphology",
+                        "current_weight": "medium",
+                    }
+                ],
+                "query_ideas": [{"purpose": "organism discriminator", "query": "invasive mold sequencing"}],
+            },
+        )
+
+        prompt = build_retrieval_guided_final_prompt(
+            case,
+            preset="mold_identification",
+            evidence=(),
+            query_plan=plan,
+            config=HarnessConfig(use_bare_answer_preservation=True),
+        )
+        packet = _extract_prompt_case_packet(prompt) or {}
+
+        self.assertIn("CLOSED-BOOK PRIOR PRESERVATION", prompt)
+        self.assertIn("closed_book_prior_audit", prompt)
+        self.assertEqual(
+            packet["closed_book_diagnostic_prior"]["high_or_medium_diagnoses"],
+            ["Invasive Microascus sinusitis"],
+        )
 
     def test_source_exclusion_matches_original_source_metadata(self) -> None:
         case = case_from_manifest_row(_manifest_row())
@@ -170,6 +316,116 @@ class RetrievalGuidedEvalTests(unittest.TestCase):
             self.assertGreaterEqual(len(syntheses), 1)
             self.assertIn("evidence_synthesis", prompt)
             self.assertIn("retrieval_rounds_allowed", prompt)
+
+
+    def test_frontier_mode_runner_uses_answerer_query_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manifest = root / "manifest.jsonl"
+            manifest.write_text(json.dumps(_manifest_row()) + "\n", encoding="utf-8")
+            out_dir = root / "retrieval"
+            client = _FrontierPlannerClient()
+
+            rows = run_retrieval_guided_manifest_eval(
+                manifest_path=manifest,
+                out_dir=out_dir,
+                retrieve=False,
+                model_client=client,  # type: ignore[arg-type]
+                max_queries=2,
+                max_rounds=2,
+                config=HarnessConfig(
+                    use_answerer_query_planner=True,
+                    skeptical_evidence_mode=True,
+                    min_rounds=1,
+                ),
+            )
+
+            queries = json.loads((out_dir / "next_native_PMC12710301.queries.json").read_text())
+            plan = json.loads((out_dir / "next_native_PMC12710301.query_plan.json").read_text())
+            prompt = (out_dir / "next_native_PMC12710301.retrieval_prompt.txt").read_text()
+
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0].model_final_diagnosis, "Invasive Microascus sinusitis")
+            self.assertEqual(queries[0]["generated_by"], "answerer_query_plan")
+            self.assertEqual(plan["reader_extraction_brief"], "Extract mold sequencing and morphology discriminators.")
+            self.assertIn("frontier_query_plan", prompt)
+            self.assertIn("SKEPTICAL EVIDENCE CONTRACT", prompt)
+            self.assertEqual(client.prompts[0].count("FRONTIER diagnostic planner"), 1)
+
+    def test_skip_existing_preserves_floor_mutated_response_and_closed_book_rank(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manifest = root / "manifest.jsonl"
+            manifest.write_text(json.dumps(_manifest_row()) + "\n", encoding="utf-8")
+            out_dir = root / "retrieval"
+            client = _FloorPersistenceClient()
+
+            first = run_retrieval_guided_manifest_eval(
+                manifest_path=manifest,
+                out_dir=out_dir,
+                retrieve=False,
+                model_client=client,
+                reader_client=client,
+                judge=False,
+                config=HarnessConfig(use_answerer_query_planner=True, use_bare_answer_preservation=True),
+            )
+            stored = json.loads((out_dir / "next_native_PMC12710301.retrieval_response.json").read_text())
+            stored_ranked = stored["content"]["ranked_differential"]
+
+            self.assertEqual(first[0].gold_rank, 4)
+            self.assertEqual(first[0].closed_book_gold_rank, 1)
+            self.assertEqual(stored["closed_book_gold_rank"], 1)
+            self.assertTrue(any(item.get("floor_reinserted") for item in stored_ranked))
+
+            second = run_retrieval_guided_manifest_eval(
+                manifest_path=manifest,
+                out_dir=out_dir,
+                retrieve=False,
+                model_client=_NoCallClient(),
+                reader_client=_NoCallClient(),
+                judge=False,
+                skip_existing=True,
+                config=HarnessConfig(use_answerer_query_planner=True, use_bare_answer_preservation=True),
+            )
+
+            self.assertEqual(second[0].gold_rank, first[0].gold_rank)
+            self.assertEqual(second[0].closed_book_gold_rank, first[0].closed_book_gold_rank)
+
+    def test_frontier_followup_does_not_fall_back_to_generic_preset_queries(self) -> None:
+        case = case_from_manifest_row(_manifest_row())
+        queries = build_retrieval_queries(
+            case,
+            preset="general",
+            round_index=2,
+            max_queries=2,
+            previous_queries=("diagnostic criteria differential diagnosis review",),
+            evidence=(),
+            synthesis=EvidenceSynthesis(case_id=case.case_id, preset="general", synthesis_round=1),
+            config=HarnessConfig(use_answerer_query_planner=True),
+        )
+
+        self.assertEqual(queries, ())
+
+    def test_frontier_followup_labels_reader_queries_not_preset_templates(self) -> None:
+        case = case_from_manifest_row(_manifest_row())
+        queries = build_retrieval_queries(
+            case,
+            preset="general",
+            round_index=2,
+            max_queries=2,
+            previous_queries=(),
+            evidence=(),
+            synthesis=EvidenceSynthesis(
+                case_id=case.case_id,
+                preset="general",
+                synthesis_round=1,
+                additional_queries=("invasive mold sequencing morphology discriminator",),
+            ),
+            config=HarnessConfig(use_answerer_query_planner=True),
+        )
+
+        self.assertEqual(len(queries), 1)
+        self.assertEqual(queries[0].generated_by, "reader_additional_query")
 
 
     def test_relevance_filter_drops_offtopic_when_enough_relevant(self) -> None:
@@ -360,6 +616,77 @@ class RetrievalGuidedEvalTests(unittest.TestCase):
         self.assertEqual(call["articles"][0]["section_count"], 1)
 
 
+class ClosedBookFloorTests(unittest.TestCase):
+    """The frontier do-no-harm floor: retrieval may add/promote but must not silently drop a
+    closed-book candidate from the final top-5 (the dominant top-5 regression mechanism)."""
+
+    def _payload(self, ranked: list[str], audit: list[dict] | None = None) -> dict:
+        return {
+            "ranked_differential": [{"rank": i + 1, "diagnosis": d} for i, d in enumerate(ranked)],
+            "final_diagnosis": ranked[0] if ranked else None,
+            "closed_book_prior_audit": audit or [],
+        }
+
+    def test_silently_dropped_closed_book_candidate_is_reinserted(self) -> None:
+        # Model had the gold ("myasthenia gravis") closed-book but silently dropped it for retrieval mimics.
+        closed_book = ["myasthenia gravis", "guillain-barre syndrome", "botulism"]
+        payload = self._payload(["lambert-eaton syndrome", "tick paralysis", "ALS", "porphyria", "CIDP"])
+        _enforce_closed_book_floor(payload, closed_book)
+        finals = [d["diagnosis"].lower() for d in payload["ranked_differential"]]
+        self.assertIn("myasthenia gravis", finals)  # re-inserted: would have been a top-5 loss
+        self.assertLessEqual(len(payload["ranked_differential"]), 5)
+        self.assertTrue(any(d.get("floor_reinserted") for d in payload["ranked_differential"]))
+
+    def test_explicitly_excluded_candidate_is_not_reinserted(self) -> None:
+        closed_book = ["myasthenia gravis", "botulism"]
+        payload = self._payload(
+            ["lambert-eaton syndrome", "tick paralysis", "ALS", "porphyria", "CIDP"],
+            audit=[{"diagnosis": "myasthenia gravis", "final_status": "excluded",
+                    "case_matched_reason": "anti-AChR negative and decrement absent"}],
+        )
+        _enforce_closed_book_floor(payload, closed_book)
+        finals = [d["diagnosis"].lower() for d in payload["ranked_differential"]]
+        self.assertNotIn("myasthenia gravis", finals)  # model refuted it with a discriminator
+        self.assertIn("botulism", finals)  # the non-excluded prior is still protected
+
+    def test_retrieval_rescue_is_kept_when_budget_allows(self) -> None:
+        # Closed-book gave 2 candidates; a retrieval rescue at rank 1 should survive alongside both priors.
+        closed_book = ["catatonia", "depression"]
+        payload = self._payload(["anti-NMDA receptor encephalitis", "catatonia", "depression"])
+        _enforce_closed_book_floor(payload, closed_book)
+        finals = [d["diagnosis"].lower() for d in payload["ranked_differential"]]
+        self.assertEqual(finals[0], "anti-nmda receptor encephalitis")  # rescue preserved at rank 1
+        self.assertIn("catatonia", finals)
+        self.assertIn("depression", finals)
+
+    def test_union_sampling_surfaces_a_sometimes_candidate(self) -> None:
+        # The gold ("MERS") appears at rank 4 in only one of three samples; union should keep it in top-5.
+        def pl(names):
+            return {"ranked_differential": [{"rank": i + 1, "diagnosis": d} for i, d in enumerate(names)]}
+        samples = [
+            pl(["A", "B", "C", "MERS", "D"]),
+            pl(["A", "B", "C", "D", "E"]),
+            pl(["A", "B", "C", "D", "F"]),
+        ]
+        union = _union_top5_from_samples(samples)
+        self.assertIn("MERS", union)  # best-rank 4 beats the rank-5 fillers E/F
+        self.assertEqual(union[0], "A")  # consistent rank-1 stays first
+        self.assertLessEqual(len(union), 5)
+
+    def test_closed_book_top5_ranks_by_weight(self) -> None:
+        plan = frontier_query_plan_from_payload(
+            case_from_manifest_row(_manifest_row()),
+            preset="general",
+            payload={"possible_diagnoses": [
+                {"diagnosis": "low one", "current_weight": "low"},
+                {"diagnosis": "high one", "current_weight": "high"},
+                {"diagnosis": "medium one", "current_weight": "medium"},
+            ]},
+            max_queries=4,
+        )
+        self.assertEqual(_closed_book_top5(plan)[:3], ["high one", "medium one", "low one"])
+
+
 def _manifest_row() -> dict[str, str]:
     return {
         "case_id": "next_native_PMC12710301",
@@ -496,6 +823,227 @@ class QueryFocusTests(unittest.TestCase):
     def test_minimal_query_is_two_terms(self) -> None:
         from clinical_harness.retrieval_guided_eval import _minimal_query
         self.assertEqual(len(_minimal_query("chronic progressive cerebellar ataxia adult onset").split()), 2)
+
+
+class FinalAnswerResilienceTests(unittest.TestCase):
+    def test_compact_final_prompt_keeps_extractable_case_packet(self) -> None:
+        case = case_from_manifest_row(_manifest_row())
+        plan = frontier_query_plan_from_payload(
+            case,
+            preset="general",
+            max_queries=1,
+            payload={
+                "possible_diagnoses": [
+                    {"diagnosis": "Invasive Microascus sinusitis", "current_weight": "medium"}
+                ],
+                "query_ideas": [{"query": "invasive mold sinusitis"}],
+            },
+        )
+        full_prompt = build_retrieval_guided_final_prompt(
+            case,
+            preset="general",
+            evidence=(),
+            query_plan=plan,
+            config=HarnessConfig(use_bare_answer_preservation=True),
+        )
+        packet = _extract_prompt_case_packet(full_prompt)
+        self.assertIsNotNone(packet)
+
+        compact_prompt = _compact_final_answer_prompt(
+            packet or {},
+            intro="Return ONLY one minified strict JSON object.",
+        )
+        compact_packet = _extract_prompt_case_packet(compact_prompt)
+
+        self.assertIsNotNone(compact_packet)
+        self.assertIn("Required schema exactly", compact_prompt)
+        self.assertIn("ranked_differential", compact_prompt)
+        self.assertIn("challenge_prompt", compact_packet or {})
+        self.assertIn("closed_book_diagnostic_prior", compact_packet or {})
+        self.assertIn("closed_book_prior_audit", compact_prompt)
+        self.assertLess(len(compact_prompt), len(full_prompt))
+
+    def test_truncated_final_answer_gets_compact_retry(self) -> None:
+        case = case_from_manifest_row(_manifest_row())
+        client = _FinalAnswerRetryClient()
+        prompt = build_retrieval_guided_final_prompt(case, preset="general", evidence=())
+
+        payload, response_payload, error, agreement = _generate_final_answer(
+            client,
+            prompt=prompt,
+            case=case,
+            preset="general",
+            samples=1,
+            sample_temperature=0.7,
+            consensus_judge=None,
+        )
+
+        self.assertIsNone(error)
+        self.assertIsNone(agreement)
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["final_diagnosis"], "Invasive Microascus sinusitis")
+        self.assertTrue(response_payload["recovered_from_invalid_json"])
+        self.assertEqual(len(client.prompts), 2)
+        self.assertIn("minified strict JSON", client.prompts[1])
+        self.assertIn("Case packet", client.prompts[1])
+
+
+class _FinalAnswerRetryClient:
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+
+    def chat(self, *, prompt: str, temperature: float = 0.0, max_tokens: int = 4096) -> ChatCompletionResult:
+        self.prompts.append(prompt)
+        if len(self.prompts) == 1:
+            return ChatCompletionResult(
+                model="stub",
+                content='{"problem_representation":"x","ranked_differential":[{"rank":1,',
+                raw={"choices": [{"finish_reason": "length"}]},
+                latency_ms=1,
+            )
+        return ChatCompletionResult(
+            model="stub",
+            content=json.dumps({
+                "problem_representation": "Immunocompromised patient with mold sinusitis.",
+                "retrieved_evidence_used": [],
+                "discriminator_summary": [],
+                "ranked_differential": [
+                    {"rank": 1, "diagnosis": "Invasive Microascus sinusitis"},
+                    {"rank": 2, "diagnosis": "Invasive Aspergillus sinusitis"},
+                    {"rank": 3, "diagnosis": "Mucormycosis"},
+                    {"rank": 4, "diagnosis": "Fusarium sinusitis"},
+                    {"rank": 5, "diagnosis": "Scedosporium sinusitis"},
+                ],
+                "final_diagnosis": "Invasive Microascus sinusitis",
+                "etiology": None,
+                "recommended_next_step": "Confirm fungal identification and treat.",
+                "key_papers": [],
+                "confidence": "medium",
+                "uncertainty_or_missing_information": [],
+            }),
+            raw={"choices": [{"finish_reason": "stop"}]},
+            latency_ms=1,
+        )
+
+
+class _FloorPersistenceClient:
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+
+    def chat(self, *, prompt: str, temperature: float = 0.0, max_tokens: int = 4096) -> ChatCompletionResult:
+        self.prompts.append(prompt)
+        if "FRONTIER diagnostic planner" in prompt:
+            return ChatCompletionResult(
+                model="stub",
+                content=json.dumps({
+                    "problem_representation": "Invasive fungal sinusitis.",
+                    "possible_diagnoses": [
+                        {"diagnosis": "Invasive Microascus sinusitis", "current_weight": "high"},
+                        {"diagnosis": "Invasive Aspergillus sinusitis", "current_weight": "medium"},
+                    ],
+                    "query_ideas": [],
+                    "reader_extraction_brief": "No retrieval needed.",
+                }),
+                raw={"choices": [{"finish_reason": "stop"}]},
+                latency_ms=1,
+            )
+        return ChatCompletionResult(
+            model="stub",
+            content=json.dumps({
+                "problem_representation": "Invasive fungal sinusitis.",
+                "closed_book_prior_audit": [],
+                "retrieved_evidence_used": [],
+                "discriminator_summary": [],
+                "ranked_differential": [
+                    {"rank": 1, "diagnosis": "Mucormycosis"},
+                    {"rank": 2, "diagnosis": "Fusarium sinusitis"},
+                    {"rank": 3, "diagnosis": "Scedosporium sinusitis"},
+                    {"rank": 4, "diagnosis": "Alternaria sinusitis"},
+                    {"rank": 5, "diagnosis": "Candida sinusitis"},
+                ],
+                "final_diagnosis": "Mucormycosis",
+                "etiology": None,
+                "recommended_next_step": "Confirm organism.",
+                "key_papers": [],
+                "confidence": "medium",
+                "uncertainty_or_missing_information": [],
+            }),
+            raw={"choices": [{"finish_reason": "stop"}]},
+            latency_ms=1,
+        )
+
+
+class _NoCallClient:
+    def chat(self, *, prompt: str, temperature: float = 0.0, max_tokens: int = 4096) -> ChatCompletionResult:
+        raise AssertionError("skip_existing should not call the model")
+
+
+class _FrontierPlannerClient:
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+
+    def chat(self, *, prompt: str, temperature: float = 0.0, max_tokens: int = 4096) -> ChatCompletionResult:
+        self.prompts.append(prompt)
+        if "FRONTIER diagnostic planner" in prompt:
+            return ChatCompletionResult(
+                model="stub",
+                content=json.dumps({
+                    "problem_representation": "Invasive fungal sinusitis.",
+                    "possible_diagnoses": [
+                        {
+                            "diagnosis": "Invasive Microascus sinusitis",
+                            "supporting_case_facts": ["mold sinusitis"],
+                            "refuting_or_missing_case_facts": ["organism not yet confirmed"],
+                            "key_discriminator": "sequencing and morphology",
+                            "current_weight": "medium",
+                        },
+                        {
+                            "diagnosis": "Invasive Aspergillus sinusitis",
+                            "supporting_case_facts": ["invasive mold sinusitis"],
+                            "refuting_or_missing_case_facts": ["no Aspergillus-specific clue"],
+                            "key_discriminator": "culture or histology",
+                            "current_weight": "low",
+                        },
+                    ],
+                    "initial_differential": [{"diagnosis": "Invasive Microascus sinusitis"}],
+                    "uncertainty_map": [{"question": "Which mold is supported?"}],
+                    "query_ideas": [
+                        {
+                            "purpose": "mold discriminator",
+                            "source": "pubmed",
+                            "query": "invasive mold sinusitis sequencing morphology",
+                            "expected_evidence": "organism-level diagnostic clues",
+                        }
+                    ],
+                    "reader_extraction_brief": "Extract mold sequencing and morphology discriminators.",
+                    "skepticism_notes": ["Do not infer genus without case-matched lab evidence."],
+                }),
+                raw={"choices": [{"finish_reason": "stop"}]},
+                latency_ms=1,
+            )
+        return ChatCompletionResult(
+            model="stub",
+            content=json.dumps({
+                "problem_representation": "Invasive fungal sinusitis.",
+                "retrieved_evidence_used": [],
+                "discriminator_summary": [],
+                "ranked_differential": [
+                    {"rank": 1, "diagnosis": "Invasive Microascus sinusitis"},
+                    {"rank": 2, "diagnosis": "Invasive Aspergillus sinusitis"},
+                    {"rank": 3, "diagnosis": "Mucormycosis"},
+                    {"rank": 4, "diagnosis": "Fusarium sinusitis"},
+                    {"rank": 5, "diagnosis": "Scedosporium sinusitis"},
+                ],
+                "final_diagnosis": "Invasive Microascus sinusitis",
+                "etiology": None,
+                "recommended_next_step": "Confirm fungal identification and treat.",
+                "key_papers": [],
+                "confidence": "medium",
+                "uncertainty_or_missing_information": [],
+            }),
+            raw={"choices": [{"finish_reason": "stop"}]},
+            latency_ms=1,
+        )
 
 
 class ClientResilienceTests(unittest.TestCase):
