@@ -26,7 +26,7 @@
   \noindent\textbf{#1}\par\nobreak\vspace{-0.28\baselineskip}%
 }
 
-\title{Ranked Differential Diagnosis Across Frontier LLMs:\\ A Contamination-Controlled Neurology and Psychiatry Benchmark with a Retrieval Harness}
+\title{Ranked Differential Diagnosis Across Frontier LLMs:\\ A Contamination-Controlled Neurology and Psychiatry Benchmark, and a Source-Grounded Retrieval Harness}
 \author{\parbox{\linewidth}{\centering Santosh Gupta\\[2pt] \normalfont\texttt{SanGupta.ML@gmail.com}}}
 \date{}
 
@@ -46,11 +46,12 @@ been seen in pretraining. On a 68-case hard set
 Gemini 3.5 Flash and 3.1 Pro, Claude Opus 4.8, and GPT-5.4 and 5.5---and report how they distribute correct
 answers across ranks. The central finding is that models differ not only in accuracy but in \emph{where they
 place the correct diagnosis}: some surface it as their most confident (top-1) prediction, while others uncover
-it lower in a broader list, so the model ordering re-arranges as the rank cutoff grows. Because these
-models' training data and post-training are undisclosed, we treat mechanistic explanations as conjecture.
+it lower in a broader list, so the model ordering re-arranges as the rank cutoff grows.
 We then present ClinicalHarness, a retrieval-guided pipeline that pairs an LLM with PubMed/PMC retrieval and
-a cheap per-paper reader, grounding each diagnosis in citable literature, and show that it improves top-5
-ranked accuracy for all three answerers we could run at pipeline scale, most where the base model is weakest.
+a cheap per-paper reader. A core feature is that it grounds each diagnosis in citable literature the clinician
+can verify---a cheap reader screens retrieved papers per case and returns a mean of about ten relevant
+sources (rejecting roughly 73\% as irrelevant)---and it improves top-5 ranked accuracy for all three
+answerers we could run at pipeline scale, most where the base model is weakest.
 \end{abstract}
 
 \section{Introduction}
@@ -58,9 +59,10 @@ ranked accuracy for all three answerers we could run at pipeline scale, most whe
 Medical LLMs perform well on board-style multiple-choice and short-vignette diagnosis
 \citep{MedPaLM,MedMCQA,PubMedQA}. Open-ended diagnosis from a real case report is harder: there are no
 options, the differential matters, and the answer is a specific named entity at a particular granularity.
-These systems are meant to \emph{support} a clinician rather than to diagnose autonomously, and in that
-setting a single best guess is often less useful than a short ranked list of plausible diagnoses the
-clinician can weigh. We therefore score the whole ranked differential (top-1 through top-5) and ask two
+These systems should support a clinician rather than diagnose autonomously, and useful support is both
+\emph{thorough} and \emph{verifiable}: a short ranked list of plausible diagnoses helps more than a single
+best guess, and a diagnosis backed by sources the clinician can check helps more than an unsupported
+assertion. Most evaluations reward neither---they score a single label with no provenance. We therefore score the whole ranked differential (top-1 through top-5) and ask two
 questions. First, as a benchmark: how do frontier models compare when we credit a correct diagnosis
 appearing anywhere in their top-1 through top-5, on cases chosen to be hard and guaranteed post-cutoff?
 Second, as a systems question: can a retrieval harness raise a strong model's ranked recall?
@@ -418,13 +420,17 @@ cannot demote a confident bare candidate---top-1 through top-4 are identical to 
 contributes exactly where it should, recovering a missed diagnosis into the last slot. This improves top-5
 for all three answerers (Table~\ref{tab:harness}), and the gain grows as the base model weakens---$+1$ for
 the strongest answerer (Gemini Flash), $+2$ for DeepSeek V4 Pro, and $+3$ for the weakest (DeepSeek V4
-Flash)---consistent with retrieval helping most where the base model has a genuine knowledge gap. Each
-differential is grounded in the papers the reader retained as relevant---a mean of roughly 8--12 per case
-(standard deviation 7--10), which a clinician can look up---screened from a much larger retrieved pool: the
-reader rejects a mean of 26--30 papers per case (standard deviation $\sim$12) as irrelevant, out of
-$\sim$34--41 retrieved. (Substituting the
-harness's reordered differential wholesale instead of fusing it \emph{lowers} ranked accuracy, by crowding
-the model's own correct diagnoses down the list; \S\ref{sec:disc}.)
+Flash)---consistent with retrieval helping most where the base model has a genuine knowledge gap.
+(Substituting the harness's reordered differential wholesale instead of fusing it \emph{lowers} ranked
+accuracy, by crowding the model's own correct diagnoses down the list; \S\ref{sec:disc}.)
+
+\paragraph{Source-grounded diagnosis.} Beyond accuracy, a central feature of the harness is that every
+diagnosis arrives with the literature it rests on, so a clinician can check the reasoning rather than trust
+an opaque guess. The reader screens each retrieved paper against the case and returns only the relevant
+ones with the specific discriminators they supply: a mean of about 10 grounding sources per case (standard
+deviation $\sim$9.5, range 0--39), selected from a mean of $\sim$39 retrieved papers of which the reader
+rejects roughly 73\% as irrelevant. These retained papers, attached to the final differential by PMCID/DOI,
+are the provenance a clinician can follow to verify each candidate.
 
 \section{Discussion}\label{sec:disc}
 
@@ -467,8 +473,30 @@ must not be used for patient care without prospective validation and governance.
 
 \appendix
 
-
-
+\section{Benchmark construction pipeline components (Figure~\ref{fig:benchmark})}\label{app:bench-components}
+The six stages of Figure~\ref{fig:benchmark}, end to end:
+\begin{description}
+\item[CC-BY case reports.] The raw input: strictly CC-BY open-access neurology and psychiatry case reports
+indexed in PubMed Central, each retained with its full text, PMCID, and DOI. One source paper becomes one
+challenge.
+\item[Semantic redaction.] An LLM (DeepSeek V4 Pro) rewrites each report into a diagnostic challenge that
+reproduces the presentation, workup, and findings up to the point of diagnosis while removing the stated
+diagnosis and any sentence that gives it away (final ``the diagnosis was X'' lines, disease-naming treatment,
+and similar tells).
+\item[Determinacy audit.] A check, made against the \emph{full} source, that every clinical fact required to
+reach the gold (every ``discriminator'') survives in the redacted challenge---so the case is solvable from
+the prompt alone and a wrong answer reflects reasoning rather than a fact missing from the prompt.
+\item[Repair / drop from source.] Non-determinate challenges are either repaired from the source---re-inserting
+the missing deciding result (a sequencing result, antibody titre, or biopsy finding) or reframing to the
+determinable next step---or dropped when no source-grounded repair is possible. Repairs never relax the gold.
+\item[3-model leak + sufficiency audit.] For the cross-model set, three frontier models (GPT-5.4, GPT-5.5,
+Claude Opus 4.8) independently flag two defects per case---leakage (the prompt reveals the answer) and
+insufficiency (the prompt cannot determine the gold)---and every flag is reviewed by hand against the source
+before any drop or repair.
+\item[68-case hard set.] The surviving challenges, restricted to cases the cheap DeepSeek V4 Flash fails
+closed-book, form the 68-case evaluation set used throughout. The harness pipeline (Figure~\ref{fig:harness})
+is described stage-by-stage in \S\ref{sec:harness}.
+\end{description}
 
 
 \end{document}
