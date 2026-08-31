@@ -1,7 +1,11 @@
-# LM4Sci/COLM LaTeX Scaffold
+# Archived LM4Sci/COLM LaTeX Scaffold
 
-This directory contains the LaTeX conversion scaffold for the compact workshop draft. The target venue
-is LM4Sci 2026, which requires the COLM 2026 template.
+This directory contains the archived LaTeX conversion scaffold for the compact workshop draft. The project is
+currently paused as an exploratory blog/write-up rather than being advanced as an LM4Sci submission; start with
+[`../writeup.md`](../writeup.md) for the public-facing framing. The files here are retained for transparency,
+methods detail, and possible future revival with expert review.
+
+Historical target venue: LM4Sci 2026, which required the COLM 2026 template.
 
 - Latest handoff for the paper package: `../HANDOFF_20260624.md`
 - Source Markdown: `../paper_workshop_compact_20260623.md`
@@ -22,7 +26,8 @@ placeholder markers, unbalanced core figure/table environments, missing float ca
 incorrect `fig:`/`tab:` label prefixes, duplicate labels, and unresolved `\ref`-style references. Keep
 the caveats from `../WORKSHOP_CLAIM_EVIDENCE_MATRIX_20260623.md`.
 
-Before treating the submission package as current, run:
+If this archived paper path is revived, first revalidate the scientific claims and rerun the current models;
+then run:
 
 ```bash
 python3.11 scripts/validate_workshop_submission.py

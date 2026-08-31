@@ -1,8 +1,9 @@
 # A vibe check on frontier LLMs' diagnostic reasoning — and why it isn't a paper
 
-*Status: exploratory, paused. Code, the 68-case benchmark, and ~358 development cases are released
-([ClinicalOrchestra](https://github.com/Santosh-Gupta/ClinicalOrchestra)). If the open problems below interest
-you, please reach out.*
+*Status: exploratory, paused. Code, the 68-case benchmark, and ~358 development cases are released in the
+GitHub repository currently hosted at
+[Santosh-Gupta/ClinicalOrchestra](https://github.com/Santosh-Gupta/ClinicalOrchestra). If the open problems
+below interest you, please reach out.*
 
 I set out to build a clean, contamination-controlled benchmark of frontier LLMs on **open-ended** clinical
 diagnosis — not multiple-choice, but "here is a real case, give me your ranked differential" — over neurology
@@ -11,6 +12,11 @@ harness meant to ground each diagnosis in citable literature. I got far enough t
 interesting things, and far enough to convince myself that the *definitive* version of this is a much bigger,
 more expensive undertaking than one person should claim to have nailed. So this is a write-up of the vibe, not
 a paper. Here is what's interesting, and here is why I'm not calling it settled.
+
+The workshop-paper draft is therefore archived as a methods/results record, not being advanced as a submission
+right now. The public README points here first; the LaTeX draft stays in the repo so others can inspect the
+full experimental trail, reproduce pieces, or decide whether a more rigorous expert-reviewed version is worth
+funding.
 
 ## What's actually interesting
 
@@ -89,7 +95,8 @@ that plainly than oversell it.
 - `benchmark/development_cases_359.jsonl` — 358 earlier development cases, with a `review_status` per case.
   **These were not all proofread/mended/filtered** — treat them as raw material, not a clean benchmark.
 - The harness code, the do-no-harm fusion, and the (paused) v2 verifier-gated editor.
-- The unpolished draft paper, for anyone who wants the full methods.
+- The archived, unpolished draft paper, for anyone who wants the full methods. It is not the current project
+  deliverable.
 
 If you know how to make the challenge-construction pipeline robust — or you just want to argue about it —
 I'd genuinely like to hear from you.

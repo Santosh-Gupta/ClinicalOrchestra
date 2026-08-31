@@ -4,13 +4,16 @@ This repo is worked on by multiple agents, some running on different LLMs. To av
 wheel or silently reverting hard-won decisions, follow this before you change anything.
 
 ## Read first (in order)
-0. **[docs/HANDOFF_20260624.md](docs/HANDOFF_20260624.md)** — LATEST snapshot for the LM4Sci paper:
-   audit approval packet, current validated preflight state, remaining gates, and exact next actions.
-   Read this first.
-0a. **[docs/HANDOFF_20260623.md](docs/HANDOFF_20260623.md)** — prior full snapshot (numbers, what's
+0. **[docs/writeup.md](docs/writeup.md)**, **[docs/PROJECT_PAUSE_20260831.md](docs/PROJECT_PAUSE_20260831.md)**,
+   and **[README.md](README.md)** — current project state: exploratory, paused, public-facing blog-style
+   write-up. The old workshop-paper path is archived for transparency, not the active deliverable.
+0a. **[docs/HANDOFF_20260624.md](docs/HANDOFF_20260624.md)** — historical snapshot for the LM4Sci paper:
+   audit approval packet, validated preflight state, remaining gates, and exact next actions from the now-paused
+   submission path. Read this only for background.
+0b. **[docs/HANDOFF_20260623.md](docs/HANDOFF_20260623.md)** — prior full snapshot (numbers, what's
    running, the resolved GPT-5.5 temperature behavior on Responses, the implemented Responses client,
    and the audit-arbitration context). Read this after the 0624 handoff for detailed background.
-0b. **[docs/HANDOFF_20260620.md](docs/HANDOFF_20260620.md)** — if continuing the 2026-06-20 session:
+0c. **[docs/HANDOFF_20260620.md](docs/HANDOFF_20260620.md)** — if continuing the 2026-06-20 session:
    the cross-model benchmark + paper-draft state, what's in flight, keys/scripts, and the (citable)
    contamination control. Read this BEFORE touching the cross-model or paper work.
    - **[docs/AUDIT_ARBITRATION_INSTRUCTIONS.md](docs/AUDIT_ARBITRATION_INSTRUCTIONS.md)** — if you're

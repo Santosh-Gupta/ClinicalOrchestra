@@ -17,12 +17,12 @@ decision support.
 
 ## Benchmark: Neurology & Psychiatry ranked-differential dataset
 
-The contamination-controlled 68-case benchmark from the paper lives at
+The contamination-controlled 68-case benchmark from the exploratory write-up lives at
 [`benchmark/neuro_psych_68_challenges.jsonl`](benchmark/neuro_psych_68_challenges.jsonl) — one redacted
 diagnostic challenge per line, each with a gold diagnosis and source provenance (PMCID/DOI), derived from
 strictly CC-BY case reports published after every evaluated model's training cutoff. See
 [`benchmark/README.md`](benchmark/README.md) for the field format and
-[`docs/workshop_submission/`](docs/workshop_submission/) for the paper describing its construction and the
+[`docs/workshop_submission/`](docs/workshop_submission/) for the archived paper draft with fuller methods and
 cross-model results.
 
 An additional **358 development cases** used to build and tune the harness are released at
@@ -154,8 +154,10 @@ continues and writes the same artifacts and event ledgers for later replay.
 
 - **[Write-up](docs/writeup.md): start here** — the honest project summary: the interesting findings, why it
   is paused rather than a paper, and the open problems worth taking further.
-- [Workshop paper draft](docs/workshop_submission/): full methods and the cross-model results (an unpolished
-  draft, not a finished paper).
+- **[Project Pause Note](docs/PROJECT_PAUSE_20260831.md): current status** — why the paper path is paused,
+  what is safe to claim publicly, and what would be required to revive the paper.
+- [Archived workshop paper draft](docs/workshop_submission/): full methods and cross-model results retained for
+  transparency; the current public-facing deliverable is the write-up, not a submission paper.
 - **[Operator Runbook](docs/OPERATOR_RUNBOOK.md): to run the harness on new cases** — env setup, validating a
   new batch, the 3-stage eval protocol (commands), and analyzing outputs (pass@k, gold_rank, failure triage).
 - **[AGENTS.md](AGENTS.md): read before changing anything** — the decision-trail rules across agents.
