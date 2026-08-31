@@ -7,6 +7,14 @@ calls, and final diagnostic judgement.
 It is built for benchmark research and model/tool evaluation, not clinical
 decision support.
 
+> **Project status: exploratory, paused.** This is an honest "vibe check" of frontier LLMs' diagnostic
+> reasoning, not a definitive benchmark — the hardest part (turning case reports into fair, self-contained
+> challenges without the constructor LLM's blind spots bounding the test) is a deeper problem than one person
+> can claim to have solved, and the specific numbers are already dated by newer model releases.
+> **➡️ Read the write-up: [`docs/writeup.md`](docs/writeup.md)** — what's interesting (models spread the
+> correct diagnosis differently across ranks; naive retrieval *hurts*; verification needs a sound oracle),
+> why it isn't a paper, and the open problems. If those interest you, please reach out — collaborators welcome.
+
 ## Benchmark: Neurology & Psychiatry ranked-differential dataset
 
 The contamination-controlled 68-case benchmark from the paper lives at
@@ -144,14 +152,12 @@ continues and writes the same artifacts and event ledgers for later replay.
 
 ## Documentation
 
-- **[Latest LM4Sci handoff](docs/HANDOFF_20260624.md): start here for the current workshop-paper
-  state** — audit approval packet, validated preflight, remaining provider/data/TeX gates, and exact
-  next actions for the next agent.
-- **[Audit approval packet](docs/AUDIT_ARBITRATION_APPROVAL_PACKET_20260623.md): user-veto packet
-  before manifest cleanup** — 14 drops, 9 mends, one unresolved review case, and denominator changes.
-- **[Operator Runbook](docs/OPERATOR_RUNBOOK.md): start here to run the harness on new cases** — env
-  setup, validating a new batch, the 3-stage eval protocol (commands), analyzing outputs (pass@k,
-  gold_rank, failure triage), and the rules for proposing changes. For multi-agent handoff.
+- **[Write-up](docs/writeup.md): start here** — the honest project summary: the interesting findings, why it
+  is paused rather than a paper, and the open problems worth taking further.
+- [Workshop paper draft](docs/workshop_submission/): full methods and the cross-model results (an unpolished
+  draft, not a finished paper).
+- **[Operator Runbook](docs/OPERATOR_RUNBOOK.md): to run the harness on new cases** — env setup, validating a
+  new batch, the 3-stage eval protocol (commands), and analyzing outputs (pass@k, gold_rank, failure triage).
 - **[AGENTS.md](AGENTS.md): read before changing anything** — the decision-trail rules across agents.
 - [Architecture](docs/architecture.md): core objects, retrieval stages, and evaluation modes.
 - [Quickstart](docs/quickstart.md): install, test, and run the current PubMed CLI.
