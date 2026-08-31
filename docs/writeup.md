@@ -5,10 +5,10 @@ GitHub repository currently hosted at
 [Santosh-Gupta/ClinicalOrchestra](https://github.com/Santosh-Gupta/ClinicalOrchestra). If the open problems
 below interest you, please reach out.*
 
-I set out to build a clean, contamination-controlled benchmark of frontier LLMs on **open-ended** clinical
+I set out to build a contamination-reduced benchmark of frontier LLMs on **open-ended** clinical
 diagnosis — not multiple-choice, but "here is a real case, give me your ranked differential" — over neurology
-and psychiatry case reports published *after* every model's training cutoff. Alongside it I built a retrieval
-harness meant to ground each diagnosis in citable literature. I got far enough to see some genuinely
+and psychiatry case reports published after a conservative cutoff gate for the evaluated models. Alongside it
+I built a retrieval harness meant to ground each diagnosis in citable literature. I got far enough to see some genuinely
 interesting things, and far enough to convince myself that the *definitive* version of this is a much bigger,
 more expensive undertaking than one person should claim to have nailed. So this is a write-up of the vibe, not
 a paper. Here is what's interesting, and here is why I'm not calling it settled.
@@ -21,8 +21,8 @@ funding.
 ## What's actually interesting
 
 **1. Frontier models differ in *where* they place the correct diagnosis, not just *whether* they get it.**
-Scoring the full ranked differential (top-1 through top-5) instead of a single label changes the leaderboard.
-On a 68-case hard set, at **top-1** the GPT-5.x models led (GPT-5.4 47/68, GPT-5.5 43) and Gemini 3.5 Flash sat
+Scoring the full ranked differential (top-1 through top-5) instead of a single label changes the apparent ordering.
+On a 68-case stress set, at **top-1** the GPT-5.x models led (GPT-5.4 47/68, GPT-5.5 43) and Gemini 3.5 Flash sat
 near the bottom (29). By **top-5**, Gemini Flash had climbed to *second* (54), overtaking GPT-5.5 (51), Opus
 4.8 (50), and DeepSeek V4 Pro (47) — while GPT-5.4 stayed on top (57). Some models "commit" (right early, flat
 after), others "spread" (the correct entity is often present but ranked lower). A single-label eval mis-ranks
@@ -30,6 +30,11 @@ exactly the models that are most useful when the deliverable is a differential a
 surprising: within a family the *cheaper* sibling won (Gemini 3.5 Flash beat 3.1 Pro by ten points at top-5),
 and the earlier GPT-5.4 edged the later 5.5. I can measure that the distributions differ; I can't tell you why,
 because the training is undisclosed.
+
+There is an important sampling caveat: these 68 cases were retained because an earlier closed-book DeepSeek V4
+Flash run failed them. DeepSeek Flash is therefore 0/68 by construction, and this is a **failure-selected rescue
+set**, not a neutral leaderboard or a representative estimate of clinical accuracy. The useful observation is
+the difference between committing and spreading on the same stress cases—not the fine ordering of model brands.
 
 **2. Naively bolting on retrieval *hurts* a strong model.** This was the biggest surprise. Replacing a
 model's own differential with a retrieval-grounded one *lowered* accuracy — retrieval injects
@@ -40,6 +45,19 @@ top-4 and only lets retrieval fill the fifth slot with a diagnosis the model mis
 knowledge, external evidence complements at the margin rather than replacing — and integrating it carelessly
 makes the system worse.
 
+There was an even more basic confound: the closed-book baseline itself was under-elicited. On Gemini 3.5 Flash,
+one greedy differential exposed far less of the model's knowledge than a three-sample union. With three samples,
+the gold appeared in the closed-book candidate set for 53/68 cases; adding retrieval moved that to 54/68. The
+pattern reproduced with a different reader and judge. Much of the apparent "retrieval lift" was really an
+elicitation lift. Before crediting a tool, strengthen the no-tool baseline enough that the tool is not merely
+recovering answers the model already knows but failed to say on its first sample.
+
+This also separated two problems I had initially conflated. Retrieval often did its job: it brought the gold
+diagnosis into the candidate set and improved top-5 recall. The regression happened afterward, when the final
+chooser promoted a more specific or literature-salient mimic above it. In this regime, **elicitation, selection,
+and calibration—not document retrieval—were often the bottlenecks**. Measuring only the final top-1 answer would
+have blamed the wrong component.
+
 **3. You can only safely "verify-and-edit" a model's answer where you have a sound oracle.** I tried a second
 harness that acts as a conservative *editor* of the model's differential — only re-ranking on a verbatim,
 case-grounded, independently-verified discriminator. It still didn't reliably beat the base model on hard
@@ -48,9 +66,10 @@ cases. The audit showed why: the model would demote a *correct* diagnosis on a r
 magnesium, but the answer was Gitelman anyway). Contrast this with recent math results, where a prover–verifier
 pipeline cracks open problems *because Lean is a sound oracle* — a proof either type-checks or it doesn't.
 Clinical diagnosis is **defeasible**: a "refuting" finding is a probabilistic prior, not a proof. So
-verification-gated augmentation, which pays off spectacularly in formal math, provably can't beat the base
-model on the hard cases in this domain — because the verification you'd need is exactly the reasoning the model
-lacks there. The safe contribution is a *dominance guarantee* (never do harm), not accuracy gains.
+verification-gated augmentation, which pays off spectacularly in formal math, did not reliably beat the base
+model on these hard cases — because the verification it needed was often exactly the reasoning the model lacked
+there. The safe contribution I could demonstrate was a *dominance guarantee* (never do harm), not reliable
+accuracy gains.
 
 ## What went wrong while building the harness
 
@@ -65,6 +84,13 @@ justification that is not actually in the prompt. If the gold is over-specific, 
 outcome/management answer rather than a diagnosis, the harness may look wrong for giving the clinically better
 answer. So benchmark flaws don't just add noise to evaluation; they actively corrupt harness development,
 because every apparent "model failure" might really be a challenge-construction failure.
+
+One early bug made this painfully concrete. A regex intended to remove diagnostic leakage treated phrases like
+"MRI revealed ..." as if they announced the diagnosis, and silently cut away workup findings—including, in some
+cases, the discriminator that made the published answer reachable. The general lesson was broader than that bug:
+mechanical parsers can locate sections, but the boundary between *diagnostic evidence* and *answer leakage* is a
+semantic decision. It needs source-grounded validation, not a clever string rule or the constructor model grading
+its own work.
 
 Even after filtering and mending the benchmark, the harness kept running into a second problem: **retrieval is
 not automatically a better prior than the model's own medical knowledge**. The model often already had the
@@ -101,7 +127,17 @@ improve top-1.
 There was also a subtler trap: the measurement itself was unreliable. Scoring the same differential twice could
 return different ranks, so before I could trust any result I had to fix the *judge* — judge stochasticity had
 been manufacturing fake gains and fake harms, and I was debugging the measurement and the thing being measured
-at the same time. That points at the deepest issue. Every instrument in the stack is an LLM: the benchmark is
+at the same time.
+
+Some failures were more prosaic and just as dangerous. Truncated model JSON could become an empty query plan;
+an empty plan could leave the supposedly protected closed-book floor empty; reader failures could make papers
+vanish from the evidence packet; resumed runs could lose derived baseline fields; and rate-limit errors could
+quietly change the denominator. Each failure still produced plausible-looking output. That changed how I think
+about agent evaluation: **observability and run provenance are part of the scientific method**. Every fallback,
+dropped document, model/version change, incomplete case, and scoring denominator has to be explicit and fail
+loudly, or the system can manufacture an improvement without improving anything.
+
+That points at the deepest issue. Every instrument in the stack is an LLM: the benchmark is
 LLM-built, the judge is an LLM, and the v2 verifier is an LLM that shares the base model's blind spots. Three
 noisy, *correlated* instruments stacked on one another, so you can never cleanly separate "the harness
 improved" from "the measurement moved." Formal math has Lean at the bottom of the stack; here it's LLMs all the
@@ -129,6 +165,14 @@ helped — but I could not get to *iron-clad*, per-case, without expert human re
 that bar likely exists, but it would take a serious time and API-cost commitment to find, and costs were
 already high.
 
+**Post-cutoff is a control, not a proof of uncontaminated evaluation.** Publishing a case after a model's
+documented knowledge cutoff blocks the most obvious pretraining path, but provider cutoff metadata can be coarse
+or unavailable, and later fine-tuning or connected search is not fully observable. Retrieval creates a second
+leakage route: if the harness finds the original case report, it can recover the answer even though the base model
+never saw it during training. A defensible run therefore needs both a conservative publication-date gate and
+explicit source-article exclusion with an audit trail. Even then, the claim is "reduced memorization risk," not
+"this case cannot have been seen."
+
 **And it's a moving target.** Even as a vibe, the specific numbers are already stale — every provider has
 shipped new model versions since these runs. The *shape* of the findings (models spread differently; retrieval
 must be integrated conservatively; verification needs an oracle) is more durable than the leaderboard.
@@ -149,10 +193,14 @@ that plainly than oversell it.
   isn't enough.
 - **Ranked-differential evaluation as standard.** Scoring the whole differential (not one label) revealed
   model behavior a single-label eval hides. That framing seems worth keeping regardless of the rest.
+- **Hard-set sampling without conditioning on one model.** A failure-selected set is useful for rescue analysis,
+  but it cannot support a neutral leaderboard. A stronger study needs either model-independent difficulty criteria
+  or a prospectively sampled panel, with failure-selected slices reported separately.
 
 ## What's in the repo
 
-- `benchmark/neuro_psych_68_challenges.jsonl` — the 68-case contamination-controlled set (post-cutoff, CC-BY).
+- `benchmark/neuro_psych_68_challenges.jsonl` — the 68-case post-cutoff, CC-BY, DeepSeek-Flash-failure-selected
+  stress set. It is useful for rescue analysis, not a neutral model leaderboard.
 - `benchmark/development_cases_359.jsonl` — 358 earlier development cases, with a `review_status` per case.
   **These were not all proofread/mended/filtered** — treat them as raw material, not a clean benchmark.
 - The harness code, the do-no-harm fusion, and the (paused) v2 verifier-gated editor.

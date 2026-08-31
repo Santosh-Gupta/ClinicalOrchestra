@@ -1,9 +1,14 @@
 # Neurology & Psychiatry Ranked-Differential Benchmark (68 cases)
 
-`neuro_psych_68_challenges.jsonl` is the contamination-controlled hard set discussed in the exploratory
-write-up and archived paper draft. Each line is one diagnostic challenge derived from a
-single strictly **CC-BY** open-access case report published **after** every evaluated model's training
-cutoff, so it cannot have been seen in pretraining.
+`neuro_psych_68_challenges.jsonl` is the contamination-reduced stress set discussed in the exploratory
+write-up and archived paper draft. Each line is one diagnostic challenge derived from a single strictly
+**CC-BY** open-access case report published after a conservative cutoff gate for the evaluated models. This
+reduces the ordinary pretraining-memorization route; it does not prove that no provider pipeline ever exposed a
+model to the case.
+
+The 68 rows were selected from cases that an earlier closed-book DeepSeek V4 Flash run failed. DeepSeek Flash
+is therefore 0/68 by construction. Use this as a **failure-selected rescue/error-analysis set**, not as a neutral
+model leaderboard or an estimate of population-level clinical accuracy.
 
 ## Format (one JSON object per line)
 
@@ -15,7 +20,7 @@ cutoff, so it cannot have been seen in pretraining.
 | `pmcid`, `doi` | provenance of the source case report (for re-audit) |
 | `title` | source paper title |
 | `license_key` | license of the source (CC-BY) |
-| `postcutoff` | confirmed published after model cutoffs |
+| `postcutoff` | passed the project's conservative publication-date gate |
 | `source_kind`, `wave` | construction metadata |
 
 ## How it was built
@@ -26,6 +31,9 @@ checked against the full source) and **leakage** (the prompt does not give the a
 source-grounded repair or drop. Score the full ranked differential (top-1 through top-5); credit a diagnosis
 appearing at any rank `<= n`. See the project write-up (`docs/writeup.md`) for the current public framing and
 the archived paper draft (`docs/workshop_submission/`) for fuller construction and scoring details.
+
+For retrieval-assisted runs, exclude the source article itself using its DOI/PMCID/title and record whether the
+exclusion succeeded. Otherwise retrieval can leak the published answer independently of pretraining exposure.
 
 This is a research benchmark for evaluating diagnostic reasoning, **not** a clinical decision-support tool.
 

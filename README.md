@@ -18,10 +18,12 @@ decision support.
 
 ## Benchmark: Neurology & Psychiatry ranked-differential dataset
 
-The contamination-controlled 68-case benchmark from the exploratory write-up lives at
+The contamination-reduced 68-case stress set from the exploratory write-up lives at
 [`benchmark/neuro_psych_68_challenges.jsonl`](benchmark/neuro_psych_68_challenges.jsonl) — one redacted
 diagnostic challenge per line, each with a gold diagnosis and source provenance (PMCID/DOI), derived from
-strictly CC-BY case reports published after every evaluated model's training cutoff. See
+strictly CC-BY case reports published after a conservative cutoff gate. The set was selected from cases that
+DeepSeek V4 Flash failed closed-book, so it supports rescue/error analysis rather than a neutral model
+leaderboard; the date gate reduces but cannot prove the absence of training contamination. See
 [`benchmark/README.md`](benchmark/README.md) for the field format and
 [`docs/workshop_submission/`](docs/workshop_submission/) for the archived paper draft with fuller methods and
 cross-model results.

@@ -24,7 +24,8 @@ budget than the current project should spend before release.
 
 ## What is still worth releasing
 
-- The 68-case post-cutoff neurology/psychiatry benchmark as an exploratory artifact, with source provenance.
+- The 68-case post-cutoff neurology/psychiatry stress set as an exploratory artifact, with source provenance
+  and an explicit warning that it was selected from DeepSeek V4 Flash failures rather than neutrally sampled.
 - The larger development set as raw material, clearly marked by `review_status`.
 - The model-result pattern: ranked differentials reveal behavior that top-1-only scoring hides.
 - The harness lesson: retrieval can help weaker or knowledge-gap cases but can hurt strong models when it
