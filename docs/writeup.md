@@ -98,10 +98,20 @@ reject the right answer for a plausible-but-wrong reason. Without an expert or f
 settles the question, a verifier-gated harness can avoid obvious harm, but it is hard to make it reliably
 improve top-1.
 
-So the harness development story is not "we just needed better prompts." It is: open-ended diagnosis sits in an
-awkward middle ground. It benefits from retrieval, but retrieval is noisy. It benefits from verification, but
-verification is defeasible. It needs benchmark examples, but weak benchmark examples teach the harness the
-wrong lesson. That combination makes the problem much harder than it looked at the start.
+There was also a subtler trap: the measurement itself was unreliable. Scoring the same differential twice could
+return different ranks, so before I could trust any result I had to fix the *judge* — judge stochasticity had
+been manufacturing fake gains and fake harms, and I was debugging the measurement and the thing being measured
+at the same time. That points at the deepest issue. Every instrument in the stack is an LLM: the benchmark is
+LLM-built, the judge is an LLM, and the v2 verifier is an LLM that shares the base model's blind spots. Three
+noisy, *correlated* instruments stacked on one another, so you can never cleanly separate "the harness
+improved" from "the measurement moved." Formal math has Lean at the bottom of the stack; here it's LLMs all the
+way down.
+
+So the harness development story is not "we just needed better prompts." Open-ended diagnosis sits in an awkward
+middle ground: it benefits from retrieval, but retrieval is noisy; it benefits from verification, but
+verification is defeasible; it needs benchmark examples, but weak examples teach the harness the wrong lesson —
+and there is no sound anchor anywhere in the stack to tell you whether you're making progress. That combination
+makes the problem much harder than it looked at the start.
 
 ## Why this is a blog post, not a paper
 
@@ -126,35 +136,6 @@ must be integrated conservatively; verification needs an oracle) is more durable
 So: I think this is good enough to get a *feel* for how these models reason diagnostically, and to surface
 some real, transferable lessons — but not good enough to stand as a definitive benchmark, and I'd rather say
 that plainly than oversell it.
-
-## The harness was the hard part: no solid ground to stand on
-
-A retrieval harness is a bet — you make a change and you want to know whether it helped. The whole enterprise
-rests on one assumption: that you have a trustworthy yardstick. I didn't, and that turned out to be the deeper
-difficulty behind everything above.
-
-**You can't tune a harness against a benchmark you don't trust.** The challenges are LLM-built (the
-circularity), and they're failure-selected hard cases where even the *gold* answer is sometimes debatable —
-the Gitelman example is real: a value in the prompt defensibly *argues against* the labeled answer. So a `+2`
-or a `−3` might be a genuine harness effect, or an artifact of a shaky label. I was trying to improve one
-instrument while standing on another that wobbled.
-
-**Even granting the flawed benchmark, the harness fought back at every turn.** Version one *hurt* every model
-out of the box (−10 to −12 at top-5). Getting it merely to *neutral* took several redesigns — seed the floor
-from the model's true differential rather than a narrower elicited one, then a strictly conservative fusion
-that only touches the fifth slot. And before I could even read those results, I had to fix the *judge*:
-scoring the same differential twice returned different ranks, so judge stochasticity was manufacturing fake
-gains and fake harms. I was debugging the measurement and the thing being measured at the same time. Every
-"fix" tended to trade one failure mode for another; each honest gain was small and hard-won.
-
-**The core problem: every instrument in the stack was itself an unreliable LLM.** The benchmark is LLM-built
-(can't fully trust the gold), the judge is an LLM (can't fully trust the score), and the v2 verifier — the
-thing meant to license a safe re-rank — is an LLM that shares the base model's blind spots (can't trust the
-verification). Three noisy, *correlated* instruments stacked on one another. You can never cleanly separate
-"the harness improved" from "the measurement moved." That, more than any single bug, is what made it
-fundamentally hard: without a *sound* anchor somewhere in the stack, there is no solid ground to stand on to
-know whether you're making progress. It's the same lesson as the sound-oracle point above, one level up —
-formal math has Lean at the bottom of the stack; here, it's LLMs all the way down.
 
 ## Open problems (where someone could take this further)
 
