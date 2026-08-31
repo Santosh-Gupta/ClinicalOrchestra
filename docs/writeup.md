@@ -52,6 +52,57 @@ verification-gated augmentation, which pays off spectacularly in formal math, pr
 model on the hard cases in this domain — because the verification you'd need is exactly the reasoning the model
 lacks there. The safe contribution is a *dominance guarantee* (never do harm), not accuracy gains.
 
+## What went wrong while building the harness
+
+The harness work was its own lesson. I originally thought the pipeline would look something like: take the case,
+retrieve relevant literature, summarize the useful discriminators, and let the model produce a better diagnosis.
+That intuition was too optimistic.
+
+The first problem was that **a harness is only as meaningful as the benchmark underneath it**. If the challenge
+prompt is missing the clue that justifies the gold diagnosis, then retrieval can do two bad things: it can find
+the source article and leak the answer, or it can find adjacent literature and make the model hallucinate a
+justification that is not actually in the prompt. If the gold is over-specific, under-supported, or really an
+outcome/management answer rather than a diagnosis, the harness may look wrong for giving the clinically better
+answer. So benchmark flaws don't just add noise to evaluation; they actively corrupt harness development,
+because every apparent "model failure" might really be a challenge-construction failure.
+
+Even after filtering and mending the benchmark, the harness kept running into a second problem: **retrieval is
+not automatically a better prior than the model's own medical knowledge**. The model often already had the
+right diagnosis somewhere in its top five. Retrieval brought in literature-salient mimics, rare entities,
+guideline language, and source-adjacent terminology. Those were useful when the base model had a real knowledge
+gap, but harmful when the model was already basically right. The retrieved evidence changed the frame of the
+case, and the final model would sometimes demote its own correct answer because a retrieved mimic sounded more
+specific, more publishable, or more strongly associated with one finding.
+
+I tried several versions of the harness around that failure mode. Deterministic query templates helped weak
+models in some hand-analyzed cases, but they also encoded the failures I had just seen — for example, pushing
+too hard on rare neuroinflammatory, vascular, infectious, or pathology mimics. Later versions let the frontier
+model generate its own query ideas first, used a cheaper reader model only to extract evidence, added skeptical
+reader instructions, did multiple retrieval rounds, and tried to preserve the model's closed-book differential
+as a floor. Those were all directionally saner. But the fundamental issue remained: once the harness is allowed
+to freely re-rank, it can crowd out the model's own correct candidates.
+
+The most reliable thing I found was therefore very conservative: keep the base model's top candidates protected,
+and let retrieval add only a small amount of recall at the bottom of the list unless there is a truly
+case-grounded reason to edit. That produced the modest "do-no-harm fusion" result. It is less exciting than a
+full agentic diagnostic workflow, but it matches the evidence: retrieval helped at the margin and hurt when it
+was allowed to become the main diagnostician.
+
+The v2 attempt pushed this to the logical extreme: make the harness a verifier/editor instead of a generator.
+Every edit needed a verbatim case discriminator, not just a retrieved-paper claim. Absence of support was not
+allowed to demote a candidate. The reader was not allowed to decide. The model had to ratify proposed moves.
+That architecture is much safer, but it also exposed the deeper clinical problem: **the "verifier" is not a
+sound oracle**. A lab value, imaging feature, or time course can be strongly suggestive without being
+conclusive. In medicine, exceptions are common and diagnoses are probabilistic. So the verifier can still
+reject the right answer for a plausible-but-wrong reason. Without an expert or formal criterion that actually
+settles the question, a verifier-gated harness can avoid obvious harm, but it is hard to make it reliably
+improve top-1.
+
+So the harness development story is not "we just needed better prompts." It is: open-ended diagnosis sits in an
+awkward middle ground. It benefits from retrieval, but retrieval is noisy. It benefits from verification, but
+verification is defeasible. It needs benchmark examples, but weak benchmark examples teach the harness the
+wrong lesson. That combination makes the problem much harder than it looked at the start.
+
 ## Why this is a blog post, not a paper
 
 The honest reason is the benchmark-construction problem, which turned out to be much deeper than I expected.
@@ -75,6 +126,35 @@ must be integrated conservatively; verification needs an oracle) is more durable
 So: I think this is good enough to get a *feel* for how these models reason diagnostically, and to surface
 some real, transferable lessons — but not good enough to stand as a definitive benchmark, and I'd rather say
 that plainly than oversell it.
+
+## The harness was the hard part: no solid ground to stand on
+
+A retrieval harness is a bet — you make a change and you want to know whether it helped. The whole enterprise
+rests on one assumption: that you have a trustworthy yardstick. I didn't, and that turned out to be the deeper
+difficulty behind everything above.
+
+**You can't tune a harness against a benchmark you don't trust.** The challenges are LLM-built (the
+circularity), and they're failure-selected hard cases where even the *gold* answer is sometimes debatable —
+the Gitelman example is real: a value in the prompt defensibly *argues against* the labeled answer. So a `+2`
+or a `−3` might be a genuine harness effect, or an artifact of a shaky label. I was trying to improve one
+instrument while standing on another that wobbled.
+
+**Even granting the flawed benchmark, the harness fought back at every turn.** Version one *hurt* every model
+out of the box (−10 to −12 at top-5). Getting it merely to *neutral* took several redesigns — seed the floor
+from the model's true differential rather than a narrower elicited one, then a strictly conservative fusion
+that only touches the fifth slot. And before I could even read those results, I had to fix the *judge*:
+scoring the same differential twice returned different ranks, so judge stochasticity was manufacturing fake
+gains and fake harms. I was debugging the measurement and the thing being measured at the same time. Every
+"fix" tended to trade one failure mode for another; each honest gain was small and hard-won.
+
+**The core problem: every instrument in the stack was itself an unreliable LLM.** The benchmark is LLM-built
+(can't fully trust the gold), the judge is an LLM (can't fully trust the score), and the v2 verifier — the
+thing meant to license a safe re-rank — is an LLM that shares the base model's blind spots (can't trust the
+verification). Three noisy, *correlated* instruments stacked on one another. You can never cleanly separate
+"the harness improved" from "the measurement moved." That, more than any single bug, is what made it
+fundamentally hard: without a *sound* anchor somewhere in the stack, there is no solid ground to stand on to
+know whether you're making progress. It's the same lesson as the sound-oracle point above, one level up —
+formal math has Lean at the bottom of the stack; here, it's LLMs all the way down.
 
 ## Open problems (where someone could take this further)
 

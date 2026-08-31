@@ -12,8 +12,9 @@ decision support.
 > challenges without the constructor LLM's blind spots bounding the test) is a deeper problem than one person
 > can claim to have solved, and the specific numbers are already dated by newer model releases.
 > **➡️ Read the write-up: [`docs/writeup.md`](docs/writeup.md)** — what's interesting (models spread the
-> correct diagnosis differently across ranks; naive retrieval *hurts*; verification needs a sound oracle),
-> why it isn't a paper, and the open problems. If those interest you, please reach out — collaborators welcome.
+> correct diagnosis differently across ranks), why the retrieval harness was harder than expected, why the
+> benchmark is not strong enough for a paper, and the open problems. If those interest you, please reach out —
+> collaborators welcome.
 
 ## Benchmark: Neurology & Psychiatry ranked-differential dataset
 
@@ -152,8 +153,9 @@ continues and writes the same artifacts and event ledgers for later replay.
 
 ## Documentation
 
-- **[Write-up](docs/writeup.md): start here** — the honest project summary: the interesting findings, why it
-  is paused rather than a paper, and the open problems worth taking further.
+- **[Write-up](docs/writeup.md): start here** — the honest project summary: the interesting findings, the
+  harness-development failures, why it is paused rather than a paper, and the open problems worth taking
+  further.
 - **[Project Pause Note](docs/PROJECT_PAUSE_20260831.md): current status** — why the paper path is paused,
   what is safe to claim publicly, and what would be required to revive the paper.
 - [Archived workshop paper draft](docs/workshop_submission/): full methods and cross-model results retained for
