@@ -996,4 +996,144 @@ aggregate `retrieval_guided_results.jsonl` with only the subset rows. Correct re
 **full manifest + `--skip-existing`** (reuses existing response files, only hits the missing/failed
 case, and rebuilds the complete aggregate). Used that to recover the Stage-2 tally.
 
+### 2026-06-16 — operator runbook for multi-agent handoff
+
+Because the harness is now worked on by rotating agents (rate limits mean a different LLM takes over
+periodically), wrote **[docs/OPERATOR_RUNBOOK.md](docs/OPERATOR_RUNBOOK.md)** — the turnkey procedure
+for the recurring job (validate a new NeurologyBM batch → 3-stage Flash→Pro→Flash+harness eval with
+exact commands → analyze `gold_rank`/pass@k → triage IR/reasoning/broken → propose GENERAL/NICHE
+changes), plus env/secrets setup and how to drive the Agent-Trace Viewer (UI). Linked it as item #1 in
+AGENTS.md "Read first" and at the top of the README docs index. Verified every command against the
+code (entry points `clinical-harness`/`clinical-orchestra`/`python -m clinical_harness.cli`;
+`neurologybm validate-cases --out … --mend`). This consolidates operational knowledge that was
+previously scattered across the journal and only reconstructable by reading code.
+
+### 2026-06-17 — tenth-wave cycle: a proven deep-dive → fix → solve loop
+
+Tenth-wave (100 raw, shipped unrefined because the data agent's Pro refinement kept dying on
+`Response ended prematurely`). Unblocked on Flash → 62 clean → funnel **pass@1 94% / pass@5 95%** (best
+checkpoint). Deep-dove the 4 Flash+harness failures (`docs/tenth_wave_checkpoint_triage_20260617.md`):
+**2 were benchmark defects** — refinement truncation dropped *presentation findings* (cblC's serum MMA,
+SPNM's CSF neutrophil differential), not just the diagnosis, leaving the gold under-determined against a
+reasonable mimic. The harness behaved correctly given the prompt (cblC reached rank 3).
+
+**Durable lessons promoted:**
+1. *Refinement is upstream of discriminators — a better refiner cannot conjure an absent finding.* Proved
+   it: re-refined the 2 broken cases on Pro with full article context; Pro produced richer prompts (3.5×
+   longer) but still lacked MMA / CSF-neutrophils. So "use Pro" is a quality upgrade, NOT the fix for
+   under-determination. Flash is the right refinement workhorse (fast, reliable, golds agree with Pro);
+   reserve Pro for when its richer-context margin matters (it is ~100 s/case — reasoner chewing heavy
+   input, not an outage; it's fast on small eval prompts, ~30 s).
+2. *Determinacy must check finding-level discriminators, not just pending gene/antibody/biopsy tokens.*
+   Extended `validate-cases` accordingly; re-mend went 11→16, cblC got source-grounded
+   "Plasma methylmalonic acid markedly elevated", and **re-running it through Flash+harness flipped
+   gold_rank 3→1 (fail→pass)**. Full loop closed. Canonical re-mended set `tenth_wave_clean_v2.jsonl`.
+
+**Two follow-ups deliberately NOT blind-implemented (with reasons):**
+- *Truncation root-cause* (extraction drops workup findings): tightening the truncation point risks
+  *leaking the diagnosis* (truncate too late) — a delicate balance the data-agent's extraction owns, and
+  the finding-level `validate-cases` gate now COMPENSATES robustly (catches+mends the loss). Documented as
+  a recommendation; not worth a leak-risky rewrite of the other repo's pipeline.
+- *Hyperthermia "etiologic-axis breadth" harness lever* (the 1 genuine reasoning miss: top-5 all
+  chronic/genetic ataxias, none acquired/toxic-metabolic despite an acute precipitant): N=1, so per the
+  measurement-wall principle it stays queued behind multi-seed evidence rather than fitting noise.
+
+Also hardened NeurologyBM `deepseek.py` against the `Response ended prematurely` drops (retry w/ backoff
+on chunked-encoding/connection/timeout/429/5xx; +4 tests; 69 green) — the repo update that unblocks Pro
+refinement whenever the endpoint is healthy.
+
+### 2026-06-17 — eleventh-wave: the etiologic-axis lever becomes a two-wave pattern
+
+Eleventh-wave (79 raw) through the turnkey pipeline with the improved finding-level `validate-cases`:
+79 → 76 golds → 56 usable → 52 clean → funnel **92% (pass@1=pass@5=48/52)**. Details
+`docs/eleventh_wave_checkpoint_triage_20260617.md`.
+
+**Key cross-wave finding:** PMC10740282 (aconitine poisoning) is a *second* instance of the
+etiologic-axis tunnel-vision lever first seen in tenth-wave PMC11617243 (hyperthermia). Both: an
+acquired/environmental cause missed because the top-5 collapsed to one endogenous class despite an acute
+precipitant in the history (aconitine: 5 endogenous spell-causes, no ingestion/toxin hypothesis, though
+the prompt gives perioral paresthesia + "shortly after meals"; hyperthermia: 5 chronic/genetic ataxias,
+no acquired cause, though the prompt gives sustained 40 °C → then ataxia). This is now the **clearest
+recurring harness-reasoning lever** and the priority for a dedicated **multi-seed A/B** (a "cover ≥3
+etiologic axes when the history has an acute precipitant/exposure" clause), per the measurement-wall rule
+— still N=2 from single runs, so not yet implemented.
+
+Other 2 eleventh-wave failures were benchmark gold-quality (niche over-specific "Animated picture
+syndrome"; over-vague "mild intellectual disability" — a severity descriptor, not an etiology → flag a
+new gold-too-vague class, the inverse of `gold_overspecific`). Frontier remains gold quality +
+de-anchoring, not retrieval coverage.
+
+### 2026-06-17 — etiologic-axis lever: built, tested, REJECTED (the measurement wall, with data)
+
+Followed the two-wave signal (hyperthermia + aconitine tunnel vision) to its conclusion: implemented the
+etiologic-axis-breadth lever as a gated, self-gating prompt clause (`--axis-breadth`, ADR-043), then ran
+the honest experiment instead of shipping on the hypothesis.
+- **Targeted 2-case test:** soft clause did nothing (both targets still all-endogenous). A *hardened*
+  "you MUST include a toxic + an acquired hypothesis" clause recovered **hyperthermia → rank 1** (heat
+  stroke cerebellar degeneration) — knowledge was present, needed the nudge — but **aconitine still
+  failed** even when forced (model reached "food-induced anaphylaxis", never plant-toxin): a genuine
+  knowledge gap, not a breadth gap.
+- **Population A/B** (`--no-retrieve`, temp 0, 170 cleaned dev cases, baseline vs hardened lever):
+  **null.** Precipitant subset 87%→85% (−1), control 83%→85% (+2), overall 85%→85% (**+1/170**), with
+  11 fail→pass and 10 pass→fail — pure bidirectional churn. On the *target* subset it slightly regressed.
+
+**Durable lesson (promote): a lever that wins on hand-picked cases can be net-zero at population scale —
+it churns (helps some, breaks others). Targeted wins are necessary but NOT sufficient; the population
+A/B (lift on target subset AND no regression on control) is the adoption gate. This is the measurement
+wall made concrete: the 2-case win was real and still didn't survive scale.** Flag retained OFF for
+reproducibility; do not re-adopt without new evidence. Net for the harness: no change (correctly).
+Frontier stays where the data points: gold quality + knowledge/retrieval for true-gap entities, not
+differential-breadth prompting.
+
+### 2026-06-19 — the variance floor, measured at last (and a second null lever)
+
+Finally quantified the measurement-wall number. Re-ran the SAME config (bare Flash + judge) on the same
+88-case twelfth-wave set, multiple seeds:
+- **temp 0.0 (production):** pass counts [67, 72, 69] → **spread 5 cases**, **16/88 (18%) flip pass↔fail**
+  across identical re-runs. This is pure judge nondeterminism (answer model is temp 0; DeepSeek isn't
+  bit-deterministic even at temp 0, and the LLM judge re-scores stochastically).
+- **temp 0.4 (sampling):** pass counts [72,75,69,72,64] → spread 11, 27% flappy. Sampling ~doubles it.
+
+**THE NUMBER: a harness fix must move >5 cases on ~88 (>~6%) to be trusted as real.** Below that it's
+indistinguishable from judge noise. Promote to a top principle: *report mean±range over ≥3 seeds;
+never adopt a fix on a single-run delta under the variance floor.* Tooling: `baseline-eval --temperature`
+(added), `scripts/build_axis_experiment.py`.
+
+**Second null lever (ADR-044): max-specificity / conjunction-emission.** Twelfth-wave's dominant failure
+was conjunction/qualifier golds where the model named the primary component (often rank 1) but not the
+supported second component (e.g. narcolepsy + PSG-documented apnea). Built a gated `--max-specificity`
+prompt clause pushing maximal specificity + comorbid conjunctions. A/B (no-retrieve, temp 0, 88 cases):
+ALL +2, target-failures **−1**, control +3 — **+2 < the spread-5 floor = noise**. And it didn't even
+work mechanically: the target case's rank-1 still omitted the apnea conjunction (it only reworded a lower
+rank). Rejected; flag stays OFF.
+
+**Conclusion (consistent across 5 waves + 2 rejected levers + a measured floor): the harness is at its
+measurement ceiling.** Both reasoning levers I could motivate from the failures (axis-breadth, max-
+specificity) were null. The genuinely effective changes this whole arc were all benchmark-side
+(finding-level validate-cases mends; killing the generation regex). The residual frontier is gold quality
++ under-determined challenges (some conjunction golds lack the 2nd component's evidence in the prompt —
+e.g. PMC12952105 paraneoplastic absent, PMC4941803 "epileptiform" unsupported by an EEG that shows
+slowing), not harness reasoning. Stop hunting harness levers without a >floor effect in hand.
+
+### 2026-06-19 (cont.) — multi-agent ensemble tested → REJECTED; and the keeper (majority-vote judge)
+
+Two outcomes worth promoting.
+1. **JUDGE_VOTES=3 (majority-vote judging) is the real harness win this arc — it HALVES the variance
+   floor** (spread 5→2, flip-rate 18%→9% on the same 88 cases). It's a *measurement* upgrade, not
+   case-fitting. Adopt as the default for any A/B going forward; it's the only change this session that
+   cleanly improves the system (by making it measurable). Cost: 3× cheap Flash judge calls.
+2. **The multi-angle ensemble (ADR-041) — the "GPT-Pro parallel chains + reconciler" idea — was finally
+   wired in and A/B'd against the tightened floor, and it measurably HURTS** (pass@5 −4, pass@1 −11). The
+   coordinator's skeptical reconciliation de-anchors the model off an already-correct, more-specific
+   rank-1 and makes the answer terser. Rejected (ADR-046).
+
+**The through-line is now unambiguous: three reasoning levers motivated straight from the failure
+analysis — etiologic-axis breadth, max-specificity, and the multi-agent ensemble — ALL failed (null,
+null, negative) against a trustworthy floor.** The single-chain base reasoner is already strong; the
+misses are gold quality + under-determination (benchmark-side), not reasoning depth/architecture. STOP
+proposing harness reasoning levers; the leverage is (a) tighter measurement (JUDGE_VOTES), (b) benchmark
+gold quality, (c) scale/N. If a future agent wants to try a reasoning change, the bar is a >floor
+(>~2-case at votes=3, >~3 to be safe) net lift with no pass@1 regression — and the prior on it working is
+now low.
+
 <!-- Next agent: add your dated entry below. Promote durable lessons up into Parts I–III. -->
