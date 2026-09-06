@@ -46,11 +46,11 @@ Avoid these claims:
 - Do not claim the case challenges are all expert-validated.
 - Do not claim the retrieval harness is clinically reliable.
 - Do not imply the archived LM4Sci draft is the active deliverable.
-- Do not tune, revise, or revive the paper without first addressing benchmark determinacy with stronger review.
+- Do not tune, revise, or revive the technical report without first addressing benchmark determinacy with stronger review.
 
-## If the paper path is revived
+## If the technical-report path is revived
 
-Before treating the archived workshop draft as active again:
+Before treating the archived technical report draft as active again:
 
 1. Re-run current model versions; the old leaderboard is dated.
 2. Expert-review the 68-case benchmark for leakage, determinacy, and diagnosis/gold support.

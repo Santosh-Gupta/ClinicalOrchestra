@@ -15,7 +15,7 @@ from pathlib import Path
 
 
 DEFAULT_OUT_DIR = Path("build/lm4sci_submission_source")
-SUBMISSION_DIR = Path("docs/workshop_submission")
+SUBMISSION_DIR = Path("docs/technical_report")
 BIB_PATH = Path("docs/paper_references.bib")
 
 REQUIRED_SUBMISSION_FILES = [

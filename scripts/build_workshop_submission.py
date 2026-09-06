@@ -2,7 +2,7 @@
 """Check or build the workshop LaTeX scaffold.
 
 The default mode is a non-destructive readiness check. Use ``--build`` on a
-machine with LaTeX installed to compile ``docs/workshop_submission/main.tex``.
+machine with LaTeX installed to compile ``docs/technical_report/main.tex``.
 Run ``scripts/build_paper_figures.py`` first after figure edits.
 """
 
@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 
-DEFAULT_TEX = Path("docs/workshop_submission/main.tex")
+DEFAULT_TEX = Path("docs/technical_report/main.tex")
 
 
 def _line_number(text: str, needle: str) -> int:

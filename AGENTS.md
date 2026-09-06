@@ -6,7 +6,7 @@ wheel or silently reverting hard-won decisions, follow this before you change an
 ## Read first (in order)
 0. **[docs/writeup.md](docs/writeup.md)**, **[docs/PROJECT_PAUSE_20260831.md](docs/PROJECT_PAUSE_20260831.md)**,
    and **[README.md](README.md)** — current project state: exploratory, paused, public-facing blog-style
-   write-up. The old workshop-paper path is archived for transparency, not the active deliverable.
+   write-up. The old technical-report draft is archived for transparency, not the active deliverable.
 0a. **[docs/HANDOFF_20260624.md](docs/HANDOFF_20260624.md)** — historical snapshot for the LM4Sci paper:
    audit approval packet, validated preflight state, remaining gates, and exact next actions from the now-paused
    submission path. Read this only for background.
@@ -50,7 +50,7 @@ ADR in `docs/DESIGN_DECISIONS.md` that supersedes it (state the new evidence, ma
 
 ## Validate before you finish
 - `PYTHONPATH=src python3.11 -m unittest discover -s tests` must pass.
-- For the workshop-paper package, use `python3.11 scripts/validate_workshop_submission.py` and
+- For the technical report package, use `python3.11 scripts/validate_workshop_submission.py` and
   `PYTHONPATH=src python3.11 -m unittest discover -s tests`.
 - If you changed harness behavior, check it against the **control set** of easy cases too (ADR-004) —
   "helps the hard cases" and "doesn't break the easy ones" are different claims.

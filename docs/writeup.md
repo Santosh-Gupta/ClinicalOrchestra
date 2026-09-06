@@ -1,211 +1,267 @@
-# A vibe check on frontier LLMs' diagnostic reasoning — and why it isn't a paper
+# My [failed] Attempt at making a Medical Diagnostic LLM Harness and Benchmark
 
-*Status: exploratory, paused. Code, the 68-case benchmark, and ~358 development cases are released in the
-GitHub repository currently hosted at
-[Santosh-Gupta/ClinicalOrchestra](https://github.com/Santosh-Gupta/ClinicalOrchestra). If the open problems
-below interest you, please reach out.*
+*This is a paused, exploratory project. The code, the 68-case benchmark, and the development cases are all in
+this repo.*
 
-I set out to build a contamination-reduced benchmark of frontier LLMs on **open-ended** clinical
-diagnosis — not multiple-choice, but "here is a real case, give me your ranked differential" — over neurology
-and psychiatry case reports published after a conservative cutoff gate for the evaluated models. Alongside it
-I built a retrieval harness meant to ground each diagnosis in citable literature. I got far enough to see some genuinely
-interesting things, and far enough to convince myself that the *definitive* version of this is a much bigger,
-more expensive undertaking than one person should claim to have nailed. So this is a write-up of the vibe, not
-a paper. Here is what's interesting, and here is why I'm not calling it settled.
+I set out to build two tools for clinical AI: an open-ended diagnostic benchmark built from post-cutoff
+neurology and psychiatry case reports, and a retrieval harness to ground model differentials in literature. I
+knew neither would be trivial; I consider myself to have a deep appreciation for the work that goes into
+developing benchmarks for LLMs and harnesses that augment the abilities of LLMs like those from OpenAI, Claude,
+Cursor, Perplexity, and especially biomed ones like those from OpenEvidence, Undermind, FutureHouse,
+DeepEvidence, Queryome, EvidenceMD, etc. (please let me know if I'm missing any). But going into this project I
+had a hope that both might be something that might be easy to start, hard to master. Turned out, both were very
+hard to start.
 
-The workshop-paper draft is therefore archived as a methods/results record, not being advanced as a submission
-right now. The public README points here first; the LaTeX draft stays in the repo so others can inspect the
-full experimental trail, reproduce pieces, or decide whether a more rigorous expert-reviewed version is worth
-funding.
+While both proved far harder than anticipated and didn't fully achieve either original goals, the project
+uncovered some interesting lessons and dynamics in how frontier LLMs handle real-world clinical reasoning.
 
-## What's actually interesting
-
-**1. Frontier models differ in *where* they place the correct diagnosis, not just *whether* they get it.**
-Scoring the full ranked differential (top-1 through top-5) instead of a single label changes the apparent ordering.
-On a 68-case stress set, at **top-1** the GPT-5.x models led (GPT-5.4 47/68, GPT-5.5 43) and Gemini 3.5 Flash sat
-near the bottom (29). By **top-5**, Gemini Flash had climbed to *second* (54), overtaking GPT-5.5 (51), Opus
-4.8 (50), and DeepSeek V4 Pro (47) — while GPT-5.4 stayed on top (57). Some models "commit" (right early, flat
-after), others "spread" (the correct entity is often present but ranked lower). A single-label eval mis-ranks
-exactly the models that are most useful when the deliverable is a differential a clinician can weigh. Also
-surprising: within a family the *cheaper* sibling won (Gemini 3.5 Flash beat 3.1 Pro by ten points at top-5),
-and the earlier GPT-5.4 edged the later 5.5. I can measure that the distributions differ; I can't tell you why,
-because the training is undisclosed.
-
-There is an important sampling caveat: these 68 cases were retained because an earlier closed-book DeepSeek V4
-Flash run failed them. DeepSeek Flash is therefore 0/68 by construction, and this is a **failure-selected rescue
-set**, not a neutral leaderboard or a representative estimate of clinical accuracy. The useful observation is
-the difference between committing and spreading on the same stress cases—not the fine ordering of model brands.
-
-**2. Naively bolting on retrieval *hurts* a strong model.** This was the biggest surprise. Replacing a
-model's own differential with a retrieval-grounded one *lowered* accuracy — retrieval injects
-literature-salient candidates near the top and crowds the model's own correct diagnoses downward. The fix
-wasn't more retrieval; it was *less* — a conservative "do-no-harm fusion" that keeps the model's confident
-top-4 and only lets retrieval fill the fifth slot with a diagnosis the model missed. That nudged top-5 up by
-+1/+2/+3, largest on the weakest base model. The lesson generalizes: for a model with rich internal medical
-knowledge, external evidence complements at the margin rather than replacing — and integrating it carelessly
-makes the system worse.
-
-There was an even more basic confound: the closed-book baseline itself was under-elicited. On Gemini 3.5 Flash,
-one greedy differential exposed far less of the model's knowledge than a three-sample union. With three samples,
-the gold appeared in the closed-book candidate set for 53/68 cases; adding retrieval moved that to 54/68. The
-pattern reproduced with a different reader and judge. Much of the apparent "retrieval lift" was really an
-elicitation lift. Before crediting a tool, strengthen the no-tool baseline enough that the tool is not merely
-recovering answers the model already knows but failed to say on its first sample.
-
-This also separated two problems I had initially conflated. Retrieval often did its job: it brought the gold
-diagnosis into the candidate set and improved top-5 recall. The regression happened afterward, when the final
-chooser promoted a more specific or literature-salient mimic above it. In this regime, **elicitation, selection,
-and calibration—not document retrieval—were often the bottlenecks**. Measuring only the final top-1 answer would
-have blamed the wrong component.
-
-**3. You can only safely "verify-and-edit" a model's answer where you have a sound oracle.** I tried a second
-harness that acts as a conservative *editor* of the model's differential — only re-ranking on a verbatim,
-case-grounded, independently-verified discriminator. It still didn't reliably beat the base model on hard
-cases. The audit showed why: the model would demote a *correct* diagnosis on a real lab value it
-*misinterpreted* (e.g., "Mg 2.8 refutes Gitelman syndrome" — defensible, since Gitelman classically causes low
-magnesium, but the answer was Gitelman anyway). Contrast this with recent math results, where a prover–verifier
-pipeline cracks open problems *because Lean is a sound oracle* — a proof either type-checks or it doesn't.
-Clinical diagnosis is **defeasible**: a "refuting" finding is a probabilistic prior, not a proof. So
-verification-gated augmentation, which pays off spectacularly in formal math, did not reliably beat the base
-model on these hard cases — because the verification it needed was often exactly the reasoning the model lacked
-there. The safe contribution I could demonstrate was a *dominance guarantee* (never do harm), not reliable
-accuracy gains.
-
-## What went wrong while building the harness
-
-The harness work was its own lesson. I originally thought the pipeline would look something like: take the case,
-retrieve relevant literature, summarize the useful discriminators, and let the model produce a better diagnosis.
-That intuition was too optimistic.
-
-The first problem was that **a harness is only as meaningful as the benchmark underneath it**. If the challenge
-prompt is missing the clue that justifies the gold diagnosis, then retrieval can do two bad things: it can find
-the source article and leak the answer, or it can find adjacent literature and make the model hallucinate a
-justification that is not actually in the prompt. If the gold is over-specific, under-supported, or really an
-outcome/management answer rather than a diagnosis, the harness may look wrong for giving the clinically better
-answer. So benchmark flaws don't just add noise to evaluation; they actively corrupt harness development,
-because every apparent "model failure" might really be a challenge-construction failure.
-
-One early bug made this painfully concrete. A regex intended to remove diagnostic leakage treated phrases like
-"MRI revealed ..." as if they announced the diagnosis, and silently cut away workup findings—including, in some
-cases, the discriminator that made the published answer reachable. The general lesson was broader than that bug:
-mechanical parsers can locate sections, but the boundary between *diagnostic evidence* and *answer leakage* is a
-semantic decision. It needs source-grounded validation, not a clever string rule or the constructor model grading
-its own work.
-
-Even after filtering and mending the benchmark, the harness kept running into a second problem: **retrieval is
-not automatically a better prior than the model's own medical knowledge**. The model often already had the
-right diagnosis somewhere in its top five. Retrieval brought in literature-salient mimics, rare entities,
-guideline language, and source-adjacent terminology. Those were useful when the base model had a real knowledge
-gap, but harmful when the model was already basically right. The retrieved evidence changed the frame of the
-case, and the final model would sometimes demote its own correct answer because a retrieved mimic sounded more
-specific, more publishable, or more strongly associated with one finding.
-
-I tried several versions of the harness around that failure mode. Deterministic query templates helped weak
-models in some hand-analyzed cases, but they also encoded the failures I had just seen — for example, pushing
-too hard on rare neuroinflammatory, vascular, infectious, or pathology mimics. Later versions let the frontier
-model generate its own query ideas first, used a cheaper reader model only to extract evidence, added skeptical
-reader instructions, did multiple retrieval rounds, and tried to preserve the model's closed-book differential
-as a floor. Those were all directionally saner. But the fundamental issue remained: once the harness is allowed
-to freely re-rank, it can crowd out the model's own correct candidates.
-
-The most reliable thing I found was therefore very conservative: keep the base model's top candidates protected,
-and let retrieval add only a small amount of recall at the bottom of the list unless there is a truly
-case-grounded reason to edit. That produced the modest "do-no-harm fusion" result. It is less exciting than a
-full agentic diagnostic workflow, but it matches the evidence: retrieval helped at the margin and hurt when it
-was allowed to become the main diagnostician.
-
-The v2 attempt pushed this to the logical extreme: make the harness a verifier/editor instead of a generator.
-Every edit needed a verbatim case discriminator, not just a retrieved-paper claim. Absence of support was not
-allowed to demote a candidate. The reader was not allowed to decide. The model had to ratify proposed moves.
-That architecture is much safer, but it also exposed the deeper clinical problem: **the "verifier" is not a
-sound oracle**. A lab value, imaging feature, or time course can be strongly suggestive without being
-conclusive. In medicine, exceptions are common and diagnoses are probabilistic. So the verifier can still
-reject the right answer for a plausible-but-wrong reason. Without an expert or formal criterion that actually
-settles the question, a verifier-gated harness can avoid obvious harm, but it is hard to make it reliably
-improve top-1.
-
-There was also a subtler trap: the measurement itself was unreliable. Scoring the same differential twice could
-return different ranks, so before I could trust any result I had to fix the *judge* — judge stochasticity had
-been manufacturing fake gains and fake harms, and I was debugging the measurement and the thing being measured
-at the same time.
-
-Some failures were more prosaic and just as dangerous. Truncated model JSON could become an empty query plan;
-an empty plan could leave the supposedly protected closed-book floor empty; reader failures could make papers
-vanish from the evidence packet; resumed runs could lose derived baseline fields; and rate-limit errors could
-quietly change the denominator. Each failure still produced plausible-looking output. That changed how I think
-about agent evaluation: **observability and run provenance are part of the scientific method**. Every fallback,
-dropped document, model/version change, incomplete case, and scoring denominator has to be explicit and fail
-loudly, or the system can manufacture an improvement without improving anything.
-
-That points at the deepest issue. Every instrument in the stack is an LLM: the benchmark is
-LLM-built, the judge is an LLM, and the v2 verifier is an LLM that shares the base model's blind spots. Three
-noisy, *correlated* instruments stacked on one another, so you can never cleanly separate "the harness
-improved" from "the measurement moved." Formal math has Lean at the bottom of the stack; here it's LLMs all the
-way down.
-
-So the harness development story is not "we just needed better prompts." Open-ended diagnosis sits in an awkward
-middle ground: it benefits from retrieval, but retrieval is noisy; it benefits from verification, but
-verification is defeasible; it needs benchmark examples, but weak examples teach the harness the wrong lesson —
-and there is no sound anchor anywhere in the stack to tell you whether you're making progress. That combination
-makes the problem much harder than it looked at the start.
+Code and benchmark available at
+[github.com/Santosh-Gupta/ClinicalOrchestra](https://github.com/Santosh-Gupta/ClinicalOrchestra).
 
 ## Why this is a blog post, not a paper
 
-The honest reason is the benchmark-construction problem, which turned out to be much deeper than I expected.
+One part I got stuck on was building the benchmark: generating synthetic case challenges.
 
-**The circularity.** To turn a published case report into a fair challenge, you have to redact the diagnosis
-while keeping *everything a doctor would need to reach it*. I assumed that "everything needed" is contained in
-the case report itself. **It often isn't** — case reports are written to *narrate* a diagnosis already known
-to the authors, not to be self-contained diagnostic puzzles. Worse: whatever gap-filling or completeness-check
-you do is performed *by an LLM*, so the quality of a challenge is bounded by the capabilities of the LLM used
-to build it. That's a serious problem when the whole point is to measure the diagnostic ability of LLMs. You
-risk baking the constructor model's blind spots into the test. I put real effort into determinacy audits,
-three-model adversarial leakage/insufficiency checks, and source-grounded repair-or-drop — and it meaningfully
-helped — but I could not get to *iron-clad*, per-case, without expert human review. A pipeline that reaches
-that bar likely exists, but it would take a serious time and API-cost commitment to find, and costs were
-already high.
+I couldn't start from an existing dataset. Most ready-made diagnostic case-challenge sets come with licensing
+that won't let me use them the way I needed — redistribute them, publish challenges derived from them, or
+release the result openly. So I tried to build my own from strictly CC-BY open-access case reports. But those
+are case studies, they narrate a patient's clinical course, not case challenges, (like those from the New
+England Journal of Medicine) which hand a doctor a limited set of facts that are meant to contain everything
+needed to reach the diagnosis.
 
-**Post-cutoff is a control, not a proof of uncontaminated evaluation.** Publishing a case after a model's
-documented knowledge cutoff blocks the most obvious pretraining path, but provider cutoff metadata can be coarse
-or unavailable, and later fine-tuning or connected search is not fully observable. Retrieval creates a second
-leakage route: if the harness finds the original case report, it can recover the answer even though the base model
-never saw it during training. A defensible run therefore needs both a conservative publication-date gate and
-explicit source-article exclusion with an audit trail. Even then, the claim is "reduced memorization risk," not
-"this case cannot have been seen."
+Using frontier APIs like Claude and GPT, I tried to convert the case studies into case challenges: have the
+model read the study and lay out the starting information a doctor would need to reach the diagnosis. It was
+much messier than expected. I learned that case studies are written to explain a diagnosis the authors already
+have, not to stand as self-contained puzzles. And the tool doing the conversion — plus the check for whether
+the result is still solvable — is itself an LLM, so the quality of every challenge is capped or biased by the
+model that built it.
 
-**And it's a moving target.** Even as a vibe, the specific numbers are already stale — every provider has
-shipped new model versions since these runs. The *shape* of the findings (models spread differently; retrieval
-must be integrated conservatively; verification needs an oracle) is more durable than the leaderboard.
+### Defining ground truth
 
-So: I think this is good enough to get a *feel* for how these models reason diagnostically, and to surface
-some real, transferable lessons — but not good enough to stand as a definitive benchmark, and I'd rather say
-that plainly than oversell it.
+Case reports mix high-level syndromes, molecular causes, and management decisions—none of which are equivalent
+evaluation targets. If a prompt supports "autoimmune encephalitis," a model shouldn't be penalized for missing
+an antibody that only appears later in the text. My rule was strict: maintain the paper's original diagnosis,
+add missing context if it makes the case fair, or throw it out.
 
-## Open problems (where someone could take this further)
+### Multi-step case auditing
 
-- **Robust, non-circular challenge construction.** How do you build a self-contained diagnostic challenge from
-  a case report *without* the constructor LLM's competence upper-bounding the test? Maybe: multi-source
-  grounding, structured extraction against formal diagnostic criteria, or expert-in-the-loop verification at
-  scale. This is the crux.
-- **Verification in a defeasible domain.** Is there a partial "oracle" for diagnosis — formal criteria sets
-  (McDonald, Duke, DSM thresholds), lab-range checks, an independent stronger-model verifier — that raises the
-  precision of gated editing enough to safely beat the base model? My results say the same-model verifier
-  isn't enough.
-- **Ranked-differential evaluation as standard.** Scoring the whole differential (not one label) revealed
-  model behavior a single-label eval hides. That framing seems worth keeping regardless of the rest.
-- **Hard-set sampling without conditioning on one model.** A failure-selected set is useful for rescue analysis,
-  but it cannot support a neutral leaderboard. A stronger study needs either model-independent difficulty criteria
-  or a prospectively sampled panel, with failure-selected slices reported separately.
+A valid evaluation case must pass four distinct tests:
+
+- Is the gold answer a valid diagnosis?
+- Is it supported by the provided text?
+- Does the text leak the answer?
+- Is the target a diagnosis rather than a cause or treatment?
+
+A failure on any point renders model evaluation useless. Truly validating these criteria requires far more
+manual rigor than relying on an LLM to judge solvability.
+
+I don't think it's hopeless, though. Determinacy audits, adversarial leakage checks across three models, and
+source-grounded repair-or-drop all measurably helped, and none of them needed a clinician in the loop. I can
+see the shape of a version that reaches a fair, self-contained challenge without expert review on every case:
+pull from multiple sources, extract against formal diagnostic criteria, and use a stronger independent model as
+an adversarial checker. The generation should also be at least semi-automatic and continuously updating —
+frontier models' training data will eventually absorb the case studies these challenges are built from, so the
+benchmark has to keep producing new versions to stay ahead of the advancing cutoff date.
+
+I just couldn't get there on my own time and API budget. Doing it at the level a paper needs costs real money
+and real hours, and I was already deep into both, so I'm pausing here. Though I expect to come back to this
+eventually as the price-to-quality ratio of frontier models keeps falling, a construct-and-verify loop that's
+too expensive to run at scale today gets cheap enough to be worth another pass. And by releasing this, I'm
+hoping to draw out contributions, or ideas from others on how to probe frontier LLMs for diagnostic ability.
+
+With that said, here are some observations and lessons that I found interesting.
+
+## 1 — Gemini 3.5 Flash's performance went from near the bottom to near the top as ranked guesses went from top 1 to top 5
+
+Note: the 68 synthetic case studies I ended up with for this benchmark were those that failed deepseek v4
+flash - the assumption was that deepseek v4 flash was an inferior model to the other frontier models, which is
+problematic for a paper-worthy benchmark. The better alternative was to just retain case studies where at least
+one of the frontier models failed at, but went with the former strategy for the sake of saving money on API
+costs. I've also left DeepSeek V4 Flash off the chart below, since grading it on the very cases picked from its
+own failures would be circular.
+
+For just considering the top-1 ranked guess for diagnosis, GPT-5.4 led (47 of 68) and Gemini 3.5 Flash sat near
+the bottom (29). By top-5, Gemini Flash had climbed to second (54), passing GPT-5.5 (51), Opus 4.8 (50), and
+DeepSeek Pro (47), while GPT-5.4 stayed on top (57). The right diagnosis was usually somewhere in Flash's list,
+just not its top-1 guess — and no other model moved nearly that far.
+
+![Slopegraph of each model's correct-diagnosis count from top-1 to top-5, out of 68.](images/diagram-1-slopegraph.png)
+
+*Each line is one model, from its top-1 count (left) to its top-5 count (right), out of 68. A line that rises
+steeply means the model often had the correct diagnosis in its list, but not as its first guess — Gemini 3.5
+Flash climbs from near the bottom to second.*
+
+Due to the flaws in developing this benchmark, there are limits on how far one can interpret from any phenomena
+for this benchmark. Still, perhaps there is some sort of 'vibe' this gives off, and if there's something to
+Gemini 3.5 Flash's performance here, maybe it's that some of its clinical abilities are latent.
+
+Two other results I didn't expect. Inside a single family the cheaper model won: Gemini 3.5 Flash beat 3.1 Pro
+by ten points at top-5. And the older GPT-5.4 came out ahead of the newer 5.5. But again, this isn't an
+iron-clad benchmark, so there's a limit to how much can be interpreted from these results.
+
+## 2 — Developing a retrieval harness to assist a closed-book (no internet access) LLM api is much harder than I anticipated
+
+I attempted to create a retrieval harness for LLM apis that don't have access to the internet. There are
+versions that do have access to the internet, but are more expensive. There are several search APIs, such as
+the one from PubMed, which are cheap or even free. I figured I could put together a harness that might be able
+to perform as well as the internet-search APIs, and maybe, outperform them.
+
+It didn't go as planned: handing the model a retrieval-grounded differential in place of its own lowered
+accuracy. Retrieval pulls in candidates that are prominent in the literature, floats them toward the top, and
+pushes the model's own correct answers down.
+
+That exposed a distinction I had been missing: retrieval and selection are different problems. The system often
+retrieved the right disease and placed it somewhere in the top five, then the final chooser ranked a rarer,
+more specific, or more paper-salient mimic above it.
+
+Benchmark-mode retrieval was also artificially harder than real clinical retrieval. In a real research
+assistant, if the most relevant paper is the exact case report, reading it is the point. In a benchmark, that
+is cheating, so the harness had to exclude the source article by DOI, PMCID, and title. That creates a hole
+exactly where the strongest evidence often lives: the system has to retrieve around the original paper, infer
+the relevant diagnostic pattern from neighboring literature, and still avoid copying source-adjacent phrasing.
+That is a much harder task than "use PubMed to help diagnose this case."
+
+I also created a pipeline for the APIs to self reflect on cases it got wrong, where it went wrong, and suggest
+rules for the harness so that it wouldn't make that mistake in the future. However, these rules would interfere
+with other case challenges. For example, rules that were added to catch missed neuroinflammatory disease,
+venous thrombosis, infection, or organic psychiatric mimics became anchors, and the harness kept pushing for a
+more exotic answer. tldr; A workflow tuned on one model's failures can become an adversarial prompt for a
+better one.
+
+What helped was retrieving less: keep the model's confident top four, and let retrieval touch only the fifth
+slot — and only to add a diagnosis the model had missed entirely. Though, I think this is more of a scoring
+hack rather than something that meaningfully increases a model's diagnostic ability.
+
+![The final top-5: the model's own top four pass through untouched; retrieval can reach only the fifth slot.](images/diagram-2-fusion.png)
+
+*The final top-5. The model's own top four pass through untouched; retrieval can reach only the fifth slot, and
+only to add something the model left out — so it can help without pushing a correct answer down.*
+
+## 3 — A checker can't help if it makes the same mistakes
+
+My next idea was the opposite of adding retrieval. Instead of replacing the model's answer, I let the harness
+act as a careful editor. It kept the model's ranked list of diagnoses and only moved one up or down when it
+could point to a specific fact in the case that justified the move — a lab value, an imaging finding, something
+concrete.
+
+It still couldn't reliably beat the plain model on the hard cases. Looking at the failures showed why: the
+editor sometimes took a diagnosis that was actually correct and pushed it down the list, using reasoning that
+sounded medically sound but was wrong for that case.
+
+Here is a clear example. Gitelman syndrome is a kidney disorder that usually causes low blood magnesium. In one
+case, the magnesium reading did not look low, so the model decided "then it can't be Gitelman" and moved it
+down the list. But the correct answer was Gitelman. The Claude-suggested rule (from a different synthetic case
+challenge failure) the model used — "Gitelman means low magnesium" — is real, but it does not hold in every
+case, and here it threw away the right answer.
+
+I tried the obvious fix: have the model check its own edits before accepting them. It barely helped. The model
+that proposed moving Gitelman down was the same model asked to approve that move, so it just agreed with
+itself. A checker is only useful if it can be right when the thing it is checking is wrong. This checker had
+the same blind spot as the original answer, so it repeated the mistake instead of catching it.
+
+It seems like there's a fundamental limitation when trying to apply recent AI self-correction techniques like
+those used in formal mathematics, to clinical reasoning. In math or software verification, a model's proposal
+is verified by a deterministic engine like Lean or a compiler. The checker operates on strict formal logic; it
+doesn't share the LLM's probabilistic biases, and its output is ground truth. A proof either holds or it
+doesn't.
+
+On the other hand, clinical data is messy, incomplete, and uncertain. A counter-indicative lab value or
+atypical presentation isn't a hard mathematical invalidation; it's merely a weighted piece of evidence.
+Evaluating whether an atypical finding invalidates a candidate diagnosis requires the exact same nuanced
+clinical judgment that the primary model failed to exercise in the first place.
+
+## Even with useful signal, I couldn't trust the scores
+
+I think this is the most obvious limitation to developing the harness. So I can change something and check
+whether the score went up, but that only works if I trust the score. The benchmark was not good enough to rank
+the models for real, but it did seem good enough to show whether a change helped or hurt — so tuning against it
+seemed worth trying. It was not that simple.
+
+The "correct" answers were sometimes debatable. The cases were written by a language model and hand-picked for
+being hard, and on some of them even the labeled answer is arguable, like the Gitelman case, where a value in
+the prompt really does point away from the "correct" diagnosis. So when a change moved the score up by two, I
+often could not tell whether it was a real improvement or just an accident of a shaky answer key.
+
+Not gonna lie, I attempted some pretty hacky workarounds like combining two answers, the model's own list and
+the harness's version, and I needed a fair way to score the result. The tempting method was, for each case, to
+take whichever of the two ranked the right answer higher. But that uses the answer key to make the choice,
+which you cannot do in real use, where you do not know the right answer. The honest method is a fixed rule that
+does not look at the answer: always use the harness's addition in the fifth slot, whether or not it helps. The
+gap between those two scores is the part of the "improvement" that was never real.
+
+Changing the harness often changed the question I was asking. The plain model gives one confident diagnosis.
+The harnessed model was asked for five specific, cited diagnoses after reading a page of evidence. Those are
+different tasks, so part of what looked like the harness helping was really just the different instructions. To
+compare fairly, the baseline has to be the model's own ranked list, judged the same way — not a reworded or
+re-collected version that quietly drops good answers.
+
+The harness was hard to get right, and the scoring made it harder. The first version made every model worse;
+about ten to twelve points lower at the top-5 mark, and it took several rewrites just to get back to doing no
+harm. Then I found that the scores themselves were unstable: grading the same list of diagnoses twice gave
+different ranks, so the grader's own randomness was inventing gains and losses. For a while I could not tell
+whether I was fixing the harness or fixing the way I measured it. One detail made this worse: every model call
+ran at a setting called "temperature zero," which is supposed to make the output the same every time. It was
+not. Running the same request on a provider's servers can shuffle small numerical details enough to flip a
+close ranking, so running it again never settled anything.
+
+Other failures were ordinary bugs that were easy to miss. A cut-off model response could turn into an empty
+search plan. An empty plan could leave the model's protected original answer unprotected. A reading error could
+drop a paper from the evidence. A restarted run could lose saved baseline numbers. A rate-limit error could
+quietly change how many cases were counted. Every one of these still produced a results file that looked
+completely normal.
+
+The lesson: you have to be able to see exactly what the system did. Every dropped document, every fallback,
+every cut-off response, every version change, every skipped case, and the exact number of cases counted all
+have to be recorded, and the run has to stop loudly when something goes wrong. Otherwise the system can report
+an improvement that never happened.
+
+Every part of my setup was one of these same language models, the one that wrote the cases, the one that graded
+them, and the one that was supposed to check the edits. They tend to make the same kinds of mistakes at the
+same time. So I could never cleanly separate "the harness got better" from "the measurement moved."
+
+![In formal math a proof is checked by Lean, which is always right; in diagnosis the benchmark, grader, and checker are all LLMs, with nothing guaranteed-correct underneath.](images/diagram-3-stack.png)
+
+*In formal math, a model's proof is checked by Lean, which is always right. In diagnosis, the benchmark, the
+grader, and the checker are all LLMs, with nothing guaranteed-correct underneath.*
+
+In math, the whole system rests on Lean, a checker that is always right. In diagnosis, the benchmark, the
+grader, and the checker are all language models, with nothing guaranteed-correct underneath.
+
+The tools I used to measure progress had the same weaknesses as the thing I was trying to improve, and there
+was no solid, always-correct foundation anywhere to tell me whether I was really making things better.
+
+## What's still unsolved
+
+- **Building fair test cases without the circular problem.** How do you turn a case report into a fair,
+  self-contained challenge when the tool building the challenge is a language model with its own blind spots?
+  Possible directions: pull from several sources, check each case against formal diagnostic criteria, or bring
+  in a human expert at scale.
+- **A reliable way to check a diagnosis.** Is there anything that can play Lean's role for medicine, even
+  partly — formal diagnostic criteria, normal lab ranges, or a second, stronger model used only as a checker —
+  good enough to make an editing harness safe? A model checking its own work is not enough.
+- **Scoring the whole ranked list, not just the top answer.** Reading all five guesses instead of only the
+  first showed differences between models that a single-answer score hides. That part seems worth keeping no
+  matter what happens to the rest.
+- **Picking hard cases without tying them to one model.** A set built from one model's mistakes is fine for
+  studying those mistakes, but it cannot rank models fairly. A stronger version would choose hard cases by some
+  measure that does not depend on one model, and report the model-picked cases separately.
 
 ## What's in the repo
 
-- `benchmark/neuro_psych_68_challenges.jsonl` — the 68-case post-cutoff, CC-BY, DeepSeek-Flash-failure-selected
-  stress set. It is useful for rescue analysis, not a neutral model leaderboard.
-- `benchmark/development_cases_359.jsonl` — 358 earlier development cases, with a `review_status` per case.
-  **These were not all proofread/mended/filtered** — treat them as raw material, not a clean benchmark.
-- The harness code, the do-no-harm fusion, and the (paused) v2 verifier-gated editor.
-- The archived, unpolished draft paper, for anyone who wants the full methods. It is not the current project
-  deliverable.
+- `benchmark/neuro_psych_68_challenges.jsonl` — the 68 test cases. All were published after the tested models'
+  training cutoff, all are CC-BY licensed, and all were chosen because DeepSeek Flash got them wrong. Good for
+  studying failures, not for ranking models.
+- `benchmark/development_cases_359.jsonl` — 358 earlier cases I used while building the harness, each tagged
+  with how far it got through review. Not all of these were checked or cleaned — treat them as raw material,
+  not a finished benchmark.
+- The harness code (`src/clinical_harness/`), the conservative "fifth-slot only" version that does no harm
+  (`scripts/fuse_harness.py`), the paused editor version (`src/clinical_harness/harness_v2/`), and the rough
+  draft of the technical report (`docs/technical_report/`).
 
-If you know how to make the challenge-construction pipeline robust — or you just want to argue about it —
-I'd genuinely like to hear from you.
+There were a few reasons why I wanted to write this blog. First, I think the failures of developing the
+harness, although they are failures, were super interesting to me, so I wanted to put these out there, in the
+off chance that anyone else found them interesting. Though, an unexpected benefit - in writing everything down
+and thinking/mapping through the project, I've had a few epiphanies. Hopefully there will be a part 2 for this
+blog.
+
+Repo: github.com/Santosh-Gupta/ClinicalOrchestra

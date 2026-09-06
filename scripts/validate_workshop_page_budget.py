@@ -14,7 +14,7 @@ from pathlib import Path
 
 
 DEFAULT_DRAFT = Path("docs/paper_workshop_compact_20260623.md")
-DEFAULT_TEX = Path("docs/workshop_submission/main.tex")
+DEFAULT_TEX = Path("docs/technical_report/main.tex")
 
 
 def main_content_markdown(markdown: str) -> str:

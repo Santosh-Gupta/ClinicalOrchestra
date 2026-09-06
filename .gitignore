@@ -31,7 +31,7 @@ local_private/
 
 # Internal working/debugging docs — not for public release
 docs/HANDOFF_*
-docs/workshop_submission/HANDOFF_*
+docs/technical_report/HANDOFF_*
 docs/AUDIT_ARBITRATION_*
 docs/*_triage_*.md
 docs/*_RUN_STATUS_*.md

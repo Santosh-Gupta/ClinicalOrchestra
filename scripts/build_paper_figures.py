@@ -6,7 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 
 
-OUT_DIR = Path("docs/workshop_submission/figures")
+OUT_DIR = Path("docs/technical_report/figures")
 
 
 def pdf_escape(text: str) -> str:

@@ -48,8 +48,8 @@ DEFAULT_REQUIRED_FILES = [
     "data/eval/rerun_manifests/lm4sci_20260623/README.md",
     "docs/paper_figures/README.md",
     "docs/paper_source_claim_audit_20260623.md",
-    "docs/workshop_submission/README.md",
-    "docs/workshop_submission/main.tex",
+    "docs/technical_report/README.md",
+    "docs/technical_report/main.tex",
     "scripts/build_workshop_submission.py",
     "scripts/paper_run_status.py",
     "scripts/export_paper_rerun_manifests.py",
@@ -544,7 +544,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--tex",
         type=Path,
-        default=Path("docs/workshop_submission/main.tex"),
+        default=Path("docs/technical_report/main.tex"),
         help="LaTeX scaffold to sanity-check; pass an empty value only via tests.",
     )
     parser.add_argument("--min-words", type=int, default=3000)

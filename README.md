@@ -1,20 +1,42 @@
 # ClinicalHarness
 
-ClinicalHarness is a research harness for studying how diagnostic reasoning
-systems use tools: literature search, retrieval, evidence synthesis, model
-calls, and final diagnostic judgement.
+ClinicalHarness is the code and data behind the write-up
+[**"My [failed] Attempt at making a Medical Diagnostic LLM Harness and Benchmark"**](https://santoshguptaml.substack.com/p/my-failed-attempt-at-making-a-medical)
+— an exploratory, paused project that tried to build two things:
 
-It is built for benchmark research and model/tool evaluation, not clinical
-decision support.
+- an **open-ended diagnostic benchmark** built from neurology and psychiatry case reports published after the
+  tested models' training cutoff, and
+- a **retrieval harness** meant to improve a model's ranked differential by grounding it in the literature.
 
-> **Project status: exploratory, paused.** This is an honest "vibe check" of frontier LLMs' diagnostic
-> reasoning, not a definitive benchmark — the hardest part (turning case reports into fair, self-contained
-> challenges without the constructor LLM's blind spots bounding the test) is a deeper problem than one person
-> can claim to have solved, and the specific numbers are already dated by newer model releases.
-> **➡️ Read the write-up: [`docs/writeup.md`](docs/writeup.md)** — what's interesting (models spread the
-> correct diagnosis differently across ranks), why the retrieval harness was harder than expected, why the
-> benchmark is not strong enough for a paper, and the open problems. If those interest you, please reach out —
+Neither fully worked, but the attempt turned up some interesting results and a lot of lessons. It is built for
+benchmark research and model/tool evaluation, **not clinical decision support**.
+
+![How often the correct diagnosis appeared in each model's ranked list, across 68 neurology and psychiatry cases.](docs/images/slopegraph-promo.png)
+
+> **Status: exploratory, paused.** The 68-case set was hand-picked to be hard — cases DeepSeek V4 Flash got
+> wrong — so it shows how models differ, not a definitive ranking, and the numbers are already dated by newer
+> model releases. **➡️ Read the full write-up [on Substack](https://santoshguptaml.substack.com/p/my-failed-attempt-at-making-a-medical)**
+> (or [`docs/writeup.md`](docs/writeup.md) in this repo). If the open problems interest you, please reach out —
 > collaborators welcome.
+
+## What's interesting
+
+Full detail in the [write-up](https://santoshguptaml.substack.com/p/my-failed-attempt-at-making-a-medical).
+
+**1. The correct diagnosis is often in a model's list, just not first.** Scoring the whole top-5 ranked list
+instead of only the first guess reshuffles the models — Gemini 3.5 Flash goes from near-last at top-1 to second
+by top-5 (see the chart above).
+
+**2. Bolting on retrieval hurt.** Feeding the model a retrieval-built differential lowered accuracy. The only
+safe gain came from keeping the model's own top four and letting retrieval touch just the fifth slot.
+
+![Do-no-harm fusion: the model's own top four pass through untouched; retrieval can reach only the fifth slot.](docs/images/diagram-2-fusion.png)
+
+**3. A checker that shares the model's blind spots can't fix it.** A verify-and-edit harness couldn't reliably
+beat the plain model, because clinical evidence is defeasible — there is no sound checker (like Lean in formal
+math) underneath.
+
+![In formal math a proof is checked by Lean, which is always right; in diagnosis the benchmark, grader, and checker are all LLMs.](docs/images/diagram-3-stack.png)
 
 ## Benchmark: Neurology & Psychiatry ranked-differential dataset
 
@@ -25,7 +47,7 @@ strictly CC-BY case reports published after a conservative cutoff gate. The set 
 DeepSeek V4 Flash failed closed-book, so it supports rescue/error analysis rather than a neutral model
 leaderboard; the date gate reduces but cannot prove the absence of training contamination. See
 [`benchmark/README.md`](benchmark/README.md) for the field format and
-[`docs/workshop_submission/`](docs/workshop_submission/) for the archived paper draft with fuller methods and
+[`docs/technical_report/`](docs/technical_report/) for the archived technical report draft with fuller methods and
 cross-model results.
 
 An additional **358 development cases** used to build and tune the harness are released at
@@ -158,9 +180,9 @@ continues and writes the same artifacts and event ledgers for later replay.
 - **[Write-up](docs/writeup.md): start here** — the honest project summary: the interesting findings, the
   harness-development failures, why it is paused rather than a paper, and the open problems worth taking
   further.
-- **[Project Pause Note](docs/PROJECT_PAUSE_20260831.md): current status** — why the paper path is paused,
-  what is safe to claim publicly, and what would be required to revive the paper.
-- [Archived workshop paper draft](docs/workshop_submission/): full methods and cross-model results retained for
+- **[Project Pause Note](docs/PROJECT_PAUSE_20260831.md): current status** — why the technical-report path is paused,
+  what is safe to claim publicly, and what would be required to revive the technical report.
+- [Archived technical report draft](docs/technical_report/): full methods and cross-model results retained for
   transparency; the current public-facing deliverable is the write-up, not a submission paper.
 - **[Operator Runbook](docs/OPERATOR_RUNBOOK.md): to run the harness on new cases** — env setup, validating a
   new batch, the 3-stage eval protocol (commands), and analyzing outputs (pass@k, gold_rank, failure triage).

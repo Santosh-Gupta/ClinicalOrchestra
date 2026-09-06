@@ -1,7 +1,7 @@
 # Neurology & Psychiatry Ranked-Differential Benchmark (68 cases)
 
 `neuro_psych_68_challenges.jsonl` is the contamination-reduced stress set discussed in the exploratory
-write-up and archived paper draft. Each line is one diagnostic challenge derived from a single strictly
+write-up and archived technical report draft. Each line is one diagnostic challenge derived from a single strictly
 **CC-BY** open-access case report published after a conservative cutoff gate for the evaluated models. This
 reduces the ordinary pretraining-memorization route; it does not prove that no provider pipeline ever exposed a
 model to the case.
@@ -30,7 +30,7 @@ evidence → audited for **determinacy** (every discriminator needed for the gol
 checked against the full source) and **leakage** (the prompt does not give the answer away), with
 source-grounded repair or drop. Score the full ranked differential (top-1 through top-5); credit a diagnosis
 appearing at any rank `<= n`. See the project write-up (`docs/writeup.md`) for the current public framing and
-the archived paper draft (`docs/workshop_submission/`) for fuller construction and scoring details.
+the archived technical report draft (`docs/technical_report/`) for fuller construction and scoring details.
 
 For retrieval-assisted runs, exclude the source article itself using its DOI/PMCID/title and record whether the
 exclusion succeeded. Otherwise retrieval can leak the published answer independently of pretraining exposure.
